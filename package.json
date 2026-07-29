@@ -35,7 +35,11 @@
     "build": "vue-tsc --noEmit && vite build",
     "package:portable": "npm run build && electron-builder --win portable --x64",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "version:patch": "npm version patch --no-git-tag-version && git add package.json && git commit -m \"chore: bump version\"",
+    "version:minor": "npm version minor --no-git-tag-version && git add package.json && git commit -m \"chore: bump minor version\"",
+    "version:major": "npm version major --no-git-tag-version && git add package.json && git commit -m \"chore: bump major version\"",
+    "release": "npm run version:patch && git tag v$(node -p \"require('./package.json').version\") && git push && git push --tags"
   },
   "dependencies": {
     "archiver": "^8.0.0",
