@@ -39,6 +39,21 @@
         </button>
 
         <button
+          class="btn-tool"
+          :class="{ 'btn-tool--active': syncEnabled }"
+          @click="syncEnabled = !syncEnabled"
+          :title="syncEnabled ? '同步定位：开（Ctrl+点击预览/编辑区定位）' : '同步定位：关'"
+        >
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+            <rect x="1.5" y="5" width="4" height="3" rx="0.6" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="7.5" y="2" width="4" height="3" rx="0.6" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="7.5" y="8" width="4" height="3" rx="0.6" stroke="currentColor" stroke-width="1.3" opacity="0.4"/>
+            <path d="M5.5 6.5L7.5 3.5M5.5 6.5L7.5 9.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+          </svg>
+          {{ syncEnabled ? '同步' : '不同步' }}
+        </button>
+
+        <button
           class="btn-tool btn-tool--save"
           @click="handleSave"
           :disabled="!isDirty || isSaving"
@@ -87,6 +102,7 @@
           placeholder="使用 Markdown 记录你的灵感…&#10;&#10;# 标题&#10;**加粗** *斜体*&#10;- 列表项&#10;> 引用&#10;`代码`&#10;&#10;支持 Ctrl+V 粘贴图片"
           @input="handleContentInput"
           @paste="handlePaste"
+          @click="handleEditorClick"
         ></textarea>
       </div>
 
@@ -97,7 +113,7 @@
           <span>预览</span>
           <span class="pane-hint">点击图片可调整大小</span>
         </div>
-        <div class="content-preview" v-html="renderedMarkdown" @click="handlePreviewClick"></div>
+        <div ref="previewRef" class="content-preview" v-html="renderedMarkdown" @click="handlePreviewClick"></div>
       </div>
     </div>
 
@@ -132,6 +148,8 @@ import {
   findResizableMarkdownImages,
   updateMarkdownImageWidth,
 } from '../utils/markdownImageSize'
+import { configureMarkdownSourceMap, findSourceLine } from '../utils/markdownSourceMap'
+import { useScrollSync } from '../composables/useScrollSync'
 
 const md = new MarkdownIt({
   html: false,
@@ -139,6 +157,7 @@ const md = new MarkdownIt({
   breaks: true,
 })
 configureMarkdownImageSizing(md)
+configureMarkdownSourceMap(md)
 
 const ALLOWED_URI_REGEXP = /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|flowdesk):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i
 
@@ -159,7 +178,14 @@ const isEditing = ref(false)
 const isSaving = ref(false)
 const selectedImageIndex = ref<number | null>(null)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
+const previewRef = ref<HTMLElement | null>(null)
+const syncEnabled = ref(true)
 const { requestConfirm } = useConfirm()
+const scrollSync = useScrollSync({
+  textareaRef,
+  previewRef,
+  enabled: syncEnabled,
+})
 let pendingSave: Promise<boolean> | null = null
 
 const renderedMarkdown = computed(() => {
@@ -168,7 +194,7 @@ const renderedMarkdown = computed(() => {
   })
   return DOMPurify.sanitize(raw, {
     ALLOWED_URI_REGEXP,
-    ADD_ATTR: ['style', 'data-image-index', 'data-image-width'],
+    ADD_ATTR: ['style', 'data-image-index', 'data-image-width', 'data-source-line'],
   })
 })
 
@@ -206,6 +232,14 @@ function handleContentInput(): void {
   clearImageSelection()
 }
 
+function handleEditorClick(event: MouseEvent): void {
+  if (!syncEnabled.value) return
+  if (!(event.ctrlKey || event.metaKey)) return
+  const line = scrollSync.getCurrentEditorLine()
+  scrollSync.scrollPreviewToLine(line)
+  scrollSync.highlightPreviewBlock(line)
+}
+
 function toggleEditingMode(): void {
   isEditing.value = !isEditing.value
 }
@@ -216,18 +250,32 @@ function clearImageSelection(): void {
 
 function handlePreviewClick(event: MouseEvent): void {
   const target = event.target
-  if (!(target instanceof HTMLImageElement)) {
+  if (!(target instanceof HTMLElement)) {
     clearImageSelection()
     return
   }
 
-  const imageIndex = Number(target.dataset.imageIndex)
-  if (!Number.isInteger(imageIndex) || imageIndex < 0) {
+  // Image selection takes priority over sync
+  if (target instanceof HTMLImageElement) {
+    const imageIndex = Number(target.dataset.imageIndex)
+    if (Number.isInteger(imageIndex) && imageIndex >= 0) {
+      selectedImageIndex.value = imageIndex
+      return
+    }
     clearImageSelection()
     return
   }
 
-  selectedImageIndex.value = imageIndex
+  // Ctrl+Click: preview-to-editor sync
+  if (syncEnabled.value && (event.ctrlKey || event.metaKey)) {
+    const sourceLine = findSourceLine(target)
+    if (sourceLine !== null) {
+      scrollSync.scrollEditorToLine(sourceLine)
+      scrollSync.highlightEditorLine(sourceLine)
+    }
+  }
+
+  clearImageSelection()
 }
 
 function handleImageWidthChange(width: number | null): void {
@@ -670,6 +718,23 @@ onUnmounted(() => {
 .image-tools-leave-to {
   opacity: 0;
   transform: translateY(-4px);
+}
+
+/* ── Sync toggle active state ── */
+
+.btn-tool--active {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+  background: rgba(74, 158, 255, 0.08);
+}
+
+/* ── Preview highlight animation ── */
+
+.content-preview :deep(.source-line-highlight) {
+  background-color: rgba(74, 158, 255, 0.12);
+  border-radius: 4px;
+  transition: background-color 0.35s ease;
+  box-decoration-break: clone;
 }
 
 /* ── Empty state ── */

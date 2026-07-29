@@ -2,6 +2,15 @@
 
 All notable changes to FlowDesk will be documented in this file.
 
+## [1.0.2] - 2026-07-29
+
+### Added
+
+- 编辑区与预览区双向定位（Ctrl+Click）
+- 预览区 Ctrl+Click → 编辑区自动滚动到对应 Markdown 源码行
+- 编辑区 Ctrl+Click → 预览区滚动到对应渲染块并高亮
+- 工具栏同步开关按钮
+
 ## [1.0.1] - 2026-07-29
 
 ### Added
