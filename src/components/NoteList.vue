@@ -22,6 +22,7 @@
       <div class="panel-header">
         <span class="panel-title">笔记列表</span>
         <div class="panel-header-actions">
+          <span class="notelist-shortcut">Ctrl+Shift+B</span>
           <span class="panel-count" v-if="notes.length > 0">{{ notes.length }}</span>
           <button
             class="notelist-collapse-btn"
@@ -191,6 +192,15 @@ function formatTime(isoStr: string): string {
   letter-spacing: 0.5px;
 }
 
+/* Shortcut hint text */
+.notelist-shortcut {
+  font-size: 9px;
+  color: var(--color-text-muted);
+  opacity: 0.4;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+
 .panel-count {
   font-size: 11px;
   font-weight: 600;
@@ -207,18 +217,19 @@ function formatTime(isoStr: string): string {
   justify-content: center;
   width: 22px;
   height: 22px;
-  border: none;
+  border: 1px solid var(--color-border);
   border-radius: 4px;
-  background: transparent;
-  color: var(--color-text-muted);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
   cursor: pointer;
-  transition: background-color var(--transition), color var(--transition);
+  transition: background-color var(--transition), color var(--transition), border-color var(--transition);
   flex-shrink: 0;
 }
 
 .notelist-collapse-btn:hover {
-  background: var(--color-border);
-  color: var(--color-text-secondary);
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #ffffff;
 }
 
 /* Floating expand button (visible when collapsed) */

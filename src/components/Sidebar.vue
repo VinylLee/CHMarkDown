@@ -61,16 +61,19 @@
 
       <div class="sidebar-footer">
         <span class="version">v1.0.2</span>
-        <button
-          class="sidebar-collapse-btn"
-          @click="panel.collapse()"
-          title="折叠侧边栏 (Ctrl+B)"
-          aria-label="折叠侧边栏"
-        >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path d="M7.5 2.5L4 6L7.5 9.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
+        <div class="sidebar-footer-actions">
+          <span class="sidebar-shortcut">Ctrl+B</span>
+          <button
+            class="sidebar-collapse-btn"
+            @click="panel.collapse()"
+            title="折叠侧边栏 (Ctrl+B)"
+            aria-label="折叠侧边栏"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M7.5 2.5L4 6L7.5 9.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -255,6 +258,22 @@ const panel = useSidebarPanel()
   font-weight: 500;
 }
 
+/* Sidebar footer actions group */
+.sidebar-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Shortcut hint text */
+.sidebar-shortcut {
+  font-size: 10px;
+  color: var(--color-sidebar-text);
+  opacity: 0.25;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
 /* Collapse toggle button */
 .sidebar-collapse-btn {
   display: flex;
@@ -262,19 +281,20 @@ const panel = useSidebarPanel()
   justify-content: center;
   width: 24px;
   height: 24px;
-  border: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 4px;
-  background: transparent;
+  background: rgba(255, 255, 255, 0.06);
   color: var(--color-sidebar-text);
-  opacity: 0.35;
+  opacity: 0.5;
   cursor: pointer;
-  transition: opacity var(--transition), background-color var(--transition);
+  transition: opacity var(--transition), background-color var(--transition), border-color var(--transition);
   flex-shrink: 0;
 }
 
 .sidebar-collapse-btn:hover {
-  opacity: 0.7;
-  background-color: var(--color-sidebar-hover);
+  opacity: 0.85;
+  background-color: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.25);
 }
 
 /* Floating expand button (visible when collapsed) */
