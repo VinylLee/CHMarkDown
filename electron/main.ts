@@ -32,6 +32,12 @@ function requestMainWindowClose(): void {
   }
 }
 
+function getWindowIconPath(): string {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'chmarkdown.ico')
+    : path.join(__dirname, '../resources/chmarkdown.ico')
+}
+
 function installApplicationMenu(): void {
   const template: MenuItemConstructorOptions[] = [
     {
@@ -89,7 +95,7 @@ function installApplicationMenu(): void {
               type: 'info' as const,
               title: '关于 CHMarkDown',
               message: 'CHMarkDown',
-              detail: 'Windows 本地 Markdown 笔记工具\n版本 0.1.0',
+              detail: `Windows 本地 Markdown 笔记工具\n版本 ${app.getVersion()}`,
               buttons: ['确定'],
             }
             if (mainWindow && !mainWindow.isDestroyed()) {
@@ -207,6 +213,7 @@ function createWindow(): void {
     minWidth: 800,
     minHeight: 600,
     title: APP_NAME,
+    icon: getWindowIconPath(),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

@@ -27,6 +27,9 @@ CHMarkDown/
 │   ├── views/NotesView.vue
 │   ├── App.vue
 │   └── main.ts
+├── resources/
+│   ├── chmarkdown.png
+│   └── chmarkdown.ico
 ├── docs/
 ├── package.json
 └── vite.config.ts
@@ -72,3 +75,6 @@ interface Note {
 npm test
 npm run build
 ```
+
+Windows 开发窗口和打包产物统一使用 `resources/chmarkdown.ico`。高分辨率源图保存在
+`resources/chmarkdown.png`，便于后续继续调整图标。

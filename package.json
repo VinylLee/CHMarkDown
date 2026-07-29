@@ -1,7 +1,7 @@
 {
   "name": "chmarkdown",
   "productName": "CHMarkDown",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Windows 本地 Markdown 笔记工具",
   "main": "dist-electron/main.js",
   "build": {
@@ -17,12 +17,23 @@
       "package.json"
     ],
     "win": {
+      "icon": "resources/chmarkdown.ico",
       "signAndEditExecutable": false
+    },
+    "nsis": {
+      "installerIcon": "resources/chmarkdown.ico"
     },
     "portable": {
       "artifactName": "CHMarkDown-${version}-portable-${arch}.${ext}",
       "useZip": true
-    }
+    },
+    "afterPack": "scripts/after-pack.cjs",
+    "extraResources": [
+      {
+        "from": "resources/chmarkdown.ico",
+        "to": "chmarkdown.ico"
+      }
+    ]
   },
   "scripts": {
     "dev": "vite",

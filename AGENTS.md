@@ -17,7 +17,7 @@ CHMarkDown 是一个 Windows 本地 Markdown 笔记工具。
 
 - `docs/PRD.md`
 - `docs/TECH_DESIGN.md`
-- `docs/TASKS.md`
+- `docs/ROADMAP.md`
 - 与当前任务相关的代码
 
 修改前先说明：
