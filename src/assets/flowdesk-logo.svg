@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <defs>
+    <linearGradient id="flowdesk-bg" x1="7" y1="5" x2="42" y2="44" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#58B0FF"/>
+      <stop offset="0.52" stop-color="#4A83F3"/>
+      <stop offset="1" stop-color="#6967E8"/>
+    </linearGradient>
+    <linearGradient id="flowdesk-check" x1="25" y1="26" x2="36" y2="35" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#D6F2FF"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="2" y="2" width="44" height="44" rx="14" fill="url(#flowdesk-bg)"/>
+  <path d="M5 31C14 19 25 31 43 11V32C43 38.0751 38.0751 43 32 43H16C9.92487 43 5 38.0751 5 32V31Z" fill="#FFFFFF" fill-opacity="0.065"/>
+
+  <path d="M14 14.5H33" stroke="#FFFFFF" stroke-width="3.4" stroke-linecap="round"/>
+  <path d="M14 14.5V33.5" stroke="#FFFFFF" stroke-width="3.4" stroke-linecap="round"/>
+  <path d="M14 23.5H25" stroke="#FFFFFF" stroke-width="3.4" stroke-linecap="round"/>
+  <path d="M24.5 30.5L28.5 34L35.5 25.5" stroke="url(#flowdesk-check)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
