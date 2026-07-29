@@ -196,7 +196,7 @@ function formatTime(isoStr: string): string {
 .notelist-shortcut {
   font-size: 9px;
   color: var(--color-text-muted);
-  opacity: 0.4;
+  opacity: 0.6;
   letter-spacing: 0.2px;
   white-space: nowrap;
 }

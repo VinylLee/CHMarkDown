@@ -1,28 +1,18 @@
 <template>
   <div class="note-editor" v-if="note">
     <div class="editor-toolbar">
-      <input
-        v-model="editTitle"
-        class="input-title"
-        placeholder="笔记标题"
-        maxlength="200"
-        @input="markDirty"
-        @keydown.enter.prevent="handleSave"
-      />
+      <input v-model="editTitle" class="input-title" placeholder="笔记标题" maxlength="200" @input="markDirty"
+        @keydown.enter.prevent="handleSave" />
 
       <div class="toolbar-actions">
-        <button
-          class="btn-tool btn-tool--primary"
-          @click="toggleEditingMode"
-          :title="isEditing ? '切换为纯预览' : '切换为分栏编辑'"
-        >
+        <button class="btn-tool btn-tool--primary" @click="toggleEditingMode" :title="isEditing ? '切换为纯预览' : '切换为分栏编辑'">
           <svg v-if="isEditing" width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5"/>
-            <circle cx="6" cy="6" r="1.5" fill="currentColor"/>
+            <circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5" />
+            <circle cx="6" cy="6" r="1.5" fill="currentColor" />
           </svg>
           <svg v-else width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path d="M2 9L5 2L8 9H2Z" stroke="currentColor" stroke-width="1.5" fill="currentColor" opacity="0.3"/>
-            <rect x="1.5" y="9.5" width="9" height="1.5" rx="0.75" fill="currentColor"/>
+            <path d="M2 9L5 2L8 9H2Z" stroke="currentColor" stroke-width="1.5" fill="currentColor" opacity="0.3" />
+            <rect x="1.5" y="9.5" width="9" height="1.5" rx="0.75" fill="currentColor" />
           </svg>
           {{ isEditing ? '预览模式' : '编辑' }}
         </button>
@@ -31,35 +21,30 @@
 
         <button class="btn-tool" @click="handleInsertImage" title="插入图片">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <rect x="1.5" y="2.5" width="11" height="9" rx="1.5" stroke="currentColor" stroke-width="1.3"/>
-            <circle cx="4.5" cy="5.5" r="1.2" stroke="currentColor" stroke-width="1"/>
-            <path d="M1.5 10L4.5 7L8 10L10 7.5L12.5 10" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+            <rect x="1.5" y="2.5" width="11" height="9" rx="1.5" stroke="currentColor" stroke-width="1.3" />
+            <circle cx="4.5" cy="5.5" r="1.2" stroke="currentColor" stroke-width="1" />
+            <path d="M1.5 10L4.5 7L8 10L10 7.5L12.5 10" stroke="currentColor" stroke-width="1.3"
+              stroke-linejoin="round" />
           </svg>
           插图片
         </button>
 
-        <button
-          class="btn-tool"
-          :class="{ 'btn-tool--active': syncEnabled }"
-          @click="syncEnabled = !syncEnabled"
-          :title="syncEnabled ? '同步定位：开（Ctrl+点击预览/编辑区定位）' : '同步定位：关'"
-        >
+        <button class="btn-tool" :class="{ 'btn-tool--active': syncEnabled }" @click="syncEnabled = !syncEnabled"
+          :title="syncEnabled ? '同步定位：开（Ctrl+点击预览/编辑区定位）' : '同步定位：关'">
           <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-            <rect x="1.5" y="5" width="4" height="3" rx="0.6" stroke="currentColor" stroke-width="1.3"/>
-            <rect x="7.5" y="2" width="4" height="3" rx="0.6" stroke="currentColor" stroke-width="1.3"/>
-            <rect x="7.5" y="8" width="4" height="3" rx="0.6" stroke="currentColor" stroke-width="1.3" opacity="0.4"/>
-            <path d="M5.5 6.5L7.5 3.5M5.5 6.5L7.5 9.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+            <rect x="1.5" y="5" width="4" height="3" rx="0.6" stroke="currentColor" stroke-width="1.3" />
+            <rect x="7.5" y="2" width="4" height="3" rx="0.6" stroke="currentColor" stroke-width="1.3" />
+            <rect x="7.5" y="8" width="4" height="3" rx="0.6" stroke="currentColor" stroke-width="1.3" opacity="0.4" />
+            <path d="M5.5 6.5L7.5 3.5M5.5 6.5L7.5 9.5" stroke="currentColor" stroke-width="1.1"
+              stroke-linecap="round" />
           </svg>
           {{ syncEnabled ? '同步' : '不同步' }}
         </button>
 
-        <button
-          class="btn-tool btn-tool--save"
-          @click="handleSave"
-          :disabled="!isDirty || isSaving"
-        >
+        <button class="btn-tool btn-tool--save" @click="handleSave" :disabled="!isDirty || isSaving">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path d="M2.5 6.5L5 9L9.5 3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M2.5 6.5L5 9L9.5 3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+              stroke-linejoin="round" />
           </svg>
           {{ isSaving ? '保存中…' : isDirty ? '保存 *' : '已保存' }}
         </button>
@@ -68,42 +53,38 @@
 
         <button class="btn-tool" @click="handleExport" title="导出笔记">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path d="M6 1.5V8M6 8L3.5 5.5M6 8L8.5 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M2 10H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M6 1.5V8M6 8L3.5 5.5M6 8L8.5 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+              stroke-linejoin="round" />
+            <path d="M2 10H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
           </svg>
           导出
         </button>
 
         <button class="btn-tool btn-tool--danger" @click="handleDelete" title="删除">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path d="M2 3.5H10M4.5 5V8.5M7.5 5V8.5M3 3.5L3.8 10.5H8.2L9 3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M2 3.5H10M4.5 5V8.5M7.5 5V8.5M3 3.5L3.8 10.5H8.2L9 3.5" stroke="currentColor" stroke-width="1.2"
+              stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </button>
       </div>
     </div>
 
     <Transition name="image-tools">
-      <ImageSizeControl
-        v-if="selectedImageIndex !== null"
-        :model-value="selectedImageWidth"
-        @update:model-value="handleImageWidthChange"
-        @close="clearImageSelection"
-      />
+      <ImageSizeControl v-if="selectedImageIndex !== null" :model-value="selectedImageWidth"
+        @update:model-value="handleImageWidthChange" @close="clearImageSelection" />
     </Transition>
 
     <!-- Split view: editing mode -->
     <div v-if="isEditing" class="editor-body editor-body--split">
       <div class="editor-pane editor-pane--edit">
-        <div class="pane-label">Markdown</div>
-        <textarea
-          ref="textareaRef"
-          v-model="editContent"
-          class="content-textarea"
+        <div class="pane-label pane-label--preview">
+          <span>Markdown</span>
+          <span class="pane-hint">Ctrl+Click 定位</span>
+        </div>
+        
+        <textarea ref="textareaRef" v-model="editContent" class="content-textarea"
           placeholder="使用 Markdown 记录你的灵感…&#10;&#10;# 标题&#10;**加粗** *斜体*&#10;- 列表项&#10;> 引用&#10;`代码`&#10;&#10;支持 Ctrl+V 粘贴图片"
-          @input="handleContentInput"
-          @paste="handlePaste"
-          @click="handleEditorClick"
-        ></textarea>
+          @input="handleContentInput" @paste="handlePaste" @click="handleEditorClick"></textarea>
       </div>
 
       <div class="editor-divider"></div>
@@ -119,11 +100,7 @@
 
     <!-- Full-width preview: reading mode -->
     <div v-else class="editor-body editor-body--preview">
-      <div
-        class="content-preview content-preview--full"
-        v-html="renderedMarkdown"
-        @click="handlePreviewClick"
-      ></div>
+      <div class="content-preview content-preview--full" v-html="renderedMarkdown" @click="handlePreviewClick"></div>
     </div>
   </div>
 
@@ -650,10 +627,31 @@ onUnmounted(() => {
 }
 
 /* Markdown styles */
-.content-preview :deep(h1) { font-size: 1.6em; font-weight: 700; margin: 0.8em 0 0.4em; color: #111827; }
-.content-preview :deep(h2) { font-size: 1.3em; font-weight: 600; margin: 0.7em 0 0.3em; color: #1f2937; }
-.content-preview :deep(h3) { font-size: 1.1em; font-weight: 600; margin: 0.6em 0 0.25em; color: #374151; }
-.content-preview :deep(p) { margin: 0.4em 0; }
+.content-preview :deep(h1) {
+  font-size: 1.6em;
+  font-weight: 700;
+  margin: 0.8em 0 0.4em;
+  color: #111827;
+}
+
+.content-preview :deep(h2) {
+  font-size: 1.3em;
+  font-weight: 600;
+  margin: 0.7em 0 0.3em;
+  color: #1f2937;
+}
+
+.content-preview :deep(h3) {
+  font-size: 1.1em;
+  font-weight: 600;
+  margin: 0.6em 0 0.25em;
+  color: #374151;
+}
+
+.content-preview :deep(p) {
+  margin: 0.4em 0;
+}
+
 .content-preview :deep(blockquote) {
   border-left: 3px solid var(--color-primary);
   padding: 4px 16px;
@@ -662,6 +660,7 @@ onUnmounted(() => {
   background: #f9fafb;
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
+
 .content-preview :deep(code) {
   background: #f3f4f6;
   padding: 2px 6px;
@@ -670,6 +669,7 @@ onUnmounted(() => {
   font-size: 0.88em;
   color: #e11d48;
 }
+
 .content-preview :deep(pre) {
   background: #1e1e2e;
   color: #cdd6f4;
@@ -679,35 +679,80 @@ onUnmounted(() => {
   margin: 0.6em 0;
   line-height: 1.6;
 }
+
 .content-preview :deep(pre code) {
   background: none;
   padding: 0;
   color: inherit;
   font-size: 0.9em;
 }
-.content-preview :deep(ul), .content-preview :deep(ol) { padding-left: 1.5em; margin: 0.3em 0; }
-.content-preview :deep(li) { margin: 0.1em 0; }
-.content-preview :deep(a) { color: var(--color-primary); text-decoration: underline; text-underline-offset: 2px; }
-.content-preview :deep(img) { max-width: 100%; height: auto; border-radius: var(--radius-sm); margin: 8px 0; box-shadow: var(--shadow-sm); }
+
+.content-preview :deep(ul),
+.content-preview :deep(ol) {
+  padding-left: 1.5em;
+  margin: 0.3em 0;
+}
+
+.content-preview :deep(li) {
+  margin: 0.1em 0;
+}
+
+.content-preview :deep(a) {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.content-preview :deep(img) {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+  margin: 8px 0;
+  box-shadow: var(--shadow-sm);
+}
+
 .content-preview :deep(.flowdesk-resizable-image) {
   cursor: pointer;
   outline: 2px solid transparent;
   outline-offset: 3px;
   transition: outline-color 0.16s ease, box-shadow 0.16s ease, filter 0.16s ease;
 }
+
 .content-preview :deep(.flowdesk-resizable-image:hover) {
   outline-color: rgba(74, 158, 255, 0.34);
   box-shadow: 0 4px 14px rgba(43, 110, 181, 0.15);
   filter: saturate(1.03);
 }
+
 .content-preview :deep(.flowdesk-resizable-image--selected) {
   outline-color: var(--color-primary);
   box-shadow: 0 5px 18px rgba(43, 110, 181, 0.2);
 }
-.content-preview :deep(hr) { border: none; border-top: 1px solid var(--color-border); margin: 1em 0; }
-.content-preview :deep(table) { border-collapse: collapse; width: 100%; margin: 0.6em 0; }
-.content-preview :deep(th), .content-preview :deep(td) { border: 1px solid var(--color-border); padding: 5px 10px; text-align: left; font-size: 13px; }
-.content-preview :deep(th) { background: #f9fafb; font-weight: 600; }
+
+.content-preview :deep(hr) {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: 1em 0;
+}
+
+.content-preview :deep(table) {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.6em 0;
+}
+
+.content-preview :deep(th),
+.content-preview :deep(td) {
+  border: 1px solid var(--color-border);
+  padding: 5px 10px;
+  text-align: left;
+  font-size: 13px;
+}
+
+.content-preview :deep(th) {
+  background: #f9fafb;
+  font-weight: 600;
+}
 
 .image-tools-enter-active,
 .image-tools-leave-active {

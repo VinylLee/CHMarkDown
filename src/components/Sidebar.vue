@@ -269,7 +269,7 @@ const panel = useSidebarPanel()
 .sidebar-shortcut {
   font-size: 10px;
   color: var(--color-sidebar-text);
-  opacity: 0.25;
+  opacity: 0.5;
   letter-spacing: 0.3px;
   white-space: nowrap;
 }
@@ -281,9 +281,9 @@ const panel = useSidebarPanel()
   justify-content: center;
   width: 24px;
   height: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgb(255, 255, 255, 0.9);
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.1);
   color: var(--color-sidebar-text);
   opacity: 0.5;
   cursor: pointer;
@@ -335,6 +335,6 @@ const panel = useSidebarPanel()
 .version {
   font-size: 11px;
   color: var(--color-sidebar-text);
-  opacity: 0.35;
+  opacity: 0.5;
 }
 </style>
