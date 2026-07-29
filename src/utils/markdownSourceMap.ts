@@ -8,7 +8,7 @@ const ATTR_NAME = 'data-source-line'
  * token.map[0].
  */
 export function configureMarkdownSourceMap(md: MarkdownIt): void {
-  md.core.ruler.push('flowdesk_source_map', (state) => {
+  md.core.ruler.push('chmarkdown_source_map', (state) => {
     for (const token of state.tokens) {
       if (token.nesting === -1 || token.map === null) continue
       token.attrSet(ATTR_NAME, String(token.map[0] + 1))

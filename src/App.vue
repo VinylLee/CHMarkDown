@@ -1,9 +1,6 @@
 <template>
   <div class="app-layout">
-    <Sidebar />
-    <main class="main-content">
-      <router-view />
-    </main>
+    <NotesView />
     <Toast :toasts="toasts" />
     <ConfirmDialog />
   </div>
@@ -11,36 +8,23 @@
 
 <script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue'
-import { useRoute } from 'vue-router'
-import Sidebar from './components/Sidebar.vue'
+import NotesView from './views/NotesView.vue'
 import Toast from './components/Toast.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import { useToast } from './composables/useToast'
-import { useSidebarPanel } from './composables/useSidebarPanel'
 import { useNoteListPanel } from './composables/useNoteListPanel'
 import { runAppCloseGuard } from './composables/useAppCloseGuard'
 
 const { toasts, show } = useToast()
-const sidebarPanel = useSidebarPanel()
 const noteListPanel = useNoteListPanel()
-const route = useRoute()
 let removeCloseListener: (() => void) | null = null
 let removeKeyListener: (() => void) | null = null
 
 function handleGlobalKeydown(event: KeyboardEvent): void {
-  // Ctrl+B or Cmd+B: toggle sidebar
-  if ((event.ctrlKey || event.metaKey) && event.key === 'b' && !event.shiftKey) {
-    event.preventDefault()
-    sidebarPanel.toggle()
-    return
-  }
-  // Ctrl+Shift+B or Cmd+Shift+B: toggle notelist (only on /notes)
+  // Ctrl+Shift+B or Cmd+Shift+B: toggle the note list.
   if ((event.ctrlKey || event.metaKey) && event.key === 'B' && event.shiftKey) {
-    if (route.path === '/notes') {
-      event.preventDefault()
-      noteListPanel.toggle()
-    }
-    return
+    event.preventDefault()
+    noteListPanel.toggle()
   }
 }
 
@@ -81,11 +65,6 @@ onUnmounted(() => {
   --color-danger-bg: #fef2f2;
   --color-success: #22c55e;
   --color-warning: #f59e0b;
-  --color-sidebar-bg: #1e1e2e;
-  --color-sidebar-hover: #2a2a3e;
-  --color-sidebar-active: #313145;
-  --color-sidebar-text: #a0a0b8;
-  --color-sidebar-text-active: #e0e0f0;
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
@@ -117,12 +96,7 @@ html, body {
 .app-layout {
   display: flex;
   height: 100%;
-}
-
-.main-content {
-  flex: 1;
-  padding: 24px;
-  overflow-y: auto;
+  min-width: 0;
 }
 
 /* Scrollbar */

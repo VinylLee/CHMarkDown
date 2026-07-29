@@ -1,18 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-export interface Todo {
-  id: string
-  title: string
-  description: string
-  priority: 'low' | 'medium' | 'high'
-  dueDate: string | null
-  completed: boolean
-  createdAt: string
-  updatedAt: string
-}
-
-export type CreateTodoInput = Pick<Todo, 'title' | 'description' | 'priority' | 'dueDate'>
-
 export interface Note {
   id: string
   title: string
@@ -36,13 +23,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     respondToClose: (requestId: number, allowClose: boolean): void => {
       ipcRenderer.send('app:close-response', requestId, allowClose)
     },
-  },
-  todos: {
-    getAll: (): Promise<Todo[]> => ipcRenderer.invoke('todos:getAll'),
-    add: (input: CreateTodoInput): Promise<Todo> => ipcRenderer.invoke('todos:add', input),
-    update: (id: string, updates: Partial<CreateTodoInput & { completed: boolean }>): Promise<Todo> =>
-      ipcRenderer.invoke('todos:update', id, updates),
-    delete: (id: string): Promise<void> => ipcRenderer.invoke('todos:delete', id),
   },
   notes: {
     getAll: (): Promise<Note[]> => ipcRenderer.invoke('notes:getAll'),

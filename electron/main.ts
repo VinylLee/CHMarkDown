@@ -4,12 +4,6 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createWindowCloseCoordinator } from './windowCloseCoordinator'
 import {
-  getAllTodos,
-  addTodo,
-  updateTodo,
-  deleteTodo,
-} from './services/todoService'
-import {
   getAllNotes,
   addNote,
   updateNote,
@@ -18,10 +12,10 @@ import {
   saveImageFromBuffer,
   exportNoteFile,
 } from './services/noteService'
-import { hasFlowdeskImages } from '../src/utils/markdownImageSize'
+import { hasManagedImages } from '../src/utils/markdownImageSize'
 
-const APP_NAME = 'FlowDesk'
-const APP_USER_MODEL_ID = 'com.flowdesk.desktop'
+const APP_NAME = 'CHMarkDown'
+const APP_USER_MODEL_ID = 'com.chmarkdown.desktop'
 
 app.setName(APP_NAME)
 if (process.platform === 'win32') {
@@ -36,12 +30,6 @@ function requestMainWindowClose(): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.close()
   }
-}
-
-function getWindowIconPath(): string {
-  return app.isPackaged
-    ? path.join(process.resourcesPath, 'flowdesk.ico')
-    : path.join(__dirname, '../resources/flowdesk.ico')
 }
 
 function installApplicationMenu(): void {
@@ -95,13 +83,13 @@ function installApplicationMenu(): void {
       label: '帮助',
       submenu: [
         {
-          label: '关于 FlowDesk',
+          label: '关于 CHMarkDown',
           click: () => {
             const options = {
               type: 'info' as const,
-              title: '关于 FlowDesk',
-              message: 'FlowDesk',
-              detail: 'Windows 本地效率工具\n版本 1.0.2',
+              title: '关于 CHMarkDown',
+              message: 'CHMarkDown',
+              detail: 'Windows 本地 Markdown 笔记工具\n版本 0.1.0',
               buttons: ['确定'],
             }
             if (mainWindow && !mainWindow.isDestroyed()) {
@@ -119,8 +107,8 @@ function installApplicationMenu(): void {
 }
 
 function registerProtocol(): void {
-  protocol.handle('flowdesk', (request) => {
-    const relativePath = request.url.replace('flowdesk://', '')
+  protocol.handle('chmarkdown', (request) => {
+    const relativePath = request.url.replace('chmarkdown://', '')
     const fullPath = path.join(app.getPath('userData'), relativePath)
     return net.fetch(pathToFileURL(fullPath).toString())
   })
@@ -143,23 +131,6 @@ function registerIpcHandlers(): void {
       return
     }
     mainWindowCloseCoordinator?.handleDecision(requestId, allowClose)
-  })
-
-  // Todo handlers
-  ipcMain.handle('todos:getAll', () => {
-    return getAllTodos()
-  })
-
-  ipcMain.handle('todos:add', (_event, input) => {
-    return addTodo(input)
-  })
-
-  ipcMain.handle('todos:update', (_event, id: string, updates) => {
-    return updateTodo(id, updates)
-  })
-
-  ipcMain.handle('todos:delete', (_event, id: string) => {
-    return deleteTodo(id)
   })
 
   // Note handlers
@@ -207,7 +178,7 @@ function registerIpcHandlers(): void {
     if (!mainWindow) {
       throw new Error('应用窗口未就绪')
     }
-    const hasImages = hasFlowdeskImages(
+    const hasImages = hasManagedImages(
       getAllNotes().find((n) => n.id === noteId)?.content || ''
     )
     const safeTitle = noteTitle.replace(/[<>:"/\\|?*]/g, '_') || '未命名笔记'
@@ -236,7 +207,6 @@ function createWindow(): void {
     minWidth: 800,
     minHeight: 600,
     title: APP_NAME,
-    icon: getWindowIconPath(),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

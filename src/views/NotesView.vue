@@ -18,7 +18,6 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { onBeforeRouteLeave } from 'vue-router'
 import NoteList from '../components/NoteList.vue'
 import NoteEditor from '../components/NoteEditor.vue'
 import { useConfirm } from '../composables/useConfirm'
@@ -155,18 +154,15 @@ onUnmounted(() => {
   noteListPanel.deactivate()
   unregisterCloseGuard?.()
 })
-
-onBeforeRouteLeave(() => canLeaveCurrentNote())
 </script>
 
 <style scoped>
 .notes-view {
+  flex: 1;
   display: flex;
-  height: calc(100% + 48px);
-  margin: -24px;
+  height: 100%;
+  min-width: 0;
   background: var(--color-surface);
-  border-radius: var(--radius-md);
   overflow: hidden;
-  border: 1px solid var(--color-border);
 }
 </style>

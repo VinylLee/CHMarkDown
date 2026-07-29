@@ -2,14 +2,14 @@
 
 ## 项目目标
 
-FlowDesk 是一个 Windows 本地效率工具。
+CHMarkDown 是一个 Windows 本地 Markdown 笔记工具。
 
-第一版只实现：
+当前范围只包括：
 
-- 待办事项
-- Markdown 灵感记录
+- Markdown 笔记的新建、编辑和删除
+- Markdown 实时预览
 - 本地数据保存
-- 本地图片插入
+- 本地图片插入、粘贴与导出
 
 ## 开发前要求
 
@@ -42,7 +42,7 @@ FlowDesk 是一个 Windows 本地效率工具。
 - 完成后停止，不自动进入下一阶段
 - 不修改与当前任务无关的文件
 - 不提前开发后续功能
-- 不删除已有功能
+- 不删除已有 Markdown 编辑器功能
 - 不进行无关的大规模重构
 - 优先采用简单实现
 
@@ -69,59 +69,6 @@ FlowDesk 是一个 Windows 本地效率工具。
 - 运行项目构建
 - 测试当前阶段功能
 - 检查已有功能是否受到影响
-
-## GitHub 上传与发版流程
-
-### 方式一：推送日常迭代
-
-提交日常代码到 `main` 分支，自动触发 CI（测试 + 构建）：
-
-```bash
-git add .
-git commit -m "feat: xxx"
-git push
-```
-
-CI 会自动运行测试和构建，验证代码没问题。
-
-### 方式二：发布新版本
-
-一行命令完成版本升级 + 打 tag + 推送 + 触发 Release：
-
-```bash
-npm run release
-```
-
-等价于手动执行：
-
-```bash
-# 1. 升级版本号（patch），自动 commit
-npm version patch --no-git-tag-version
-git add package.json
-git commit -m "chore: bump version"
-
-# 2. 打 tag
-git tag v$(node -p "require('./package.json').version")
-
-# 3. 推送代码和 tag
-git push
-git push --tags
-```
-
-推送 tag 后 GitHub Actions 会自动：
-1. 运行测试和构建（CI）
-2. 打包成便携版 `.exe`
-3. 创建 Release（草稿），附件含 `.exe`、`.zip`、`.7z`
-
-> 去 GitHub 仓库 Releases 页面找到草稿，确认后点 **Publish release** 即可正式发布。
-
-### 版本号规则
-
-| 命令 | 版本变化 | 示例 |
-|------|---------|------|
-| `npm run version:patch` | 修复性发布 | 1.0.0 → 1.0.1 |
-| `npm run version:minor` | 新增功能 | 1.0.0 → 1.1.0 |
-| `npm run version:major` | 重大更新 | 1.0.0 → 2.0.0 |
 
 ## 完成后的汇报格式
 

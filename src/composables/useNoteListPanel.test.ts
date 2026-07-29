@@ -101,7 +101,7 @@ describe('useNoteListPanel', () => {
     const { panel } = await getUseNoteListPanel()
     panel.toggle()
     expect(mockSetItem).toHaveBeenCalledWith(
-      'flowdesk:notelist:collapsed',
+      'chmarkdown:notelist:collapsed',
       String(true),
     )
     panel.cleanup()

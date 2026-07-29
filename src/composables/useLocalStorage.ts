@@ -10,7 +10,7 @@ const state = reactive<LocalStorageState>({
 
 function checkAvailability(): boolean {
   try {
-    const key = '__flowdesk_test__'
+    const key = '__chmarkdown_test__'
     localStorage.setItem(key, key)
     localStorage.removeItem(key)
     return true

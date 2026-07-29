@@ -12,7 +12,7 @@ export interface MarkdownImageSizeMatch {
   format: 'html' | 'markdown'
 }
 
-export interface ExportedFlowdeskImages {
+export interface ExportedManagedImages {
   content: string
   imageFiles: string[]
 }
@@ -21,8 +21,8 @@ interface MarkdownRenderEnvironment {
   selectedImageIndex?: number | null
 }
 
-interface FlowdeskImageTokenMeta {
-  flowdeskHtmlImage: true
+interface ManagedImageTokenMeta {
+  managedHtmlImage: true
   width: number | null
 }
 
@@ -31,7 +31,7 @@ const HTML_IMAGE_TAG_PATTERN = /^<img\b(?:\s+(?:[a-z_:][\w:.-]*)(?:\s*=\s*(?:"[^
 const HTML_ATTRIBUTE_PATTERN = /([a-z_:][\w:.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi
 const ZOOM_STYLE_PATTERN = /(?:^|;)\s*zoom\s*:\s*(\d{1,3})%\s*(?:;|$)/i
 const WIDTH_STYLE_PATTERN = /(?:^|;)\s*width\s*:\s*(\d{1,3})%\s*(?:;|$)/i
-const FLOWDESK_IMAGE_SOURCE_PATTERN = /^flowdesk:\/\/images\/([^/?#\\]+)$/i
+const MANAGED_IMAGE_SOURCE_PATTERN = /^chmarkdown:\/\/images\/([^/?#\\]+)$/i
 
 function isEscaped(source: string, index: number): boolean {
   let slashCount = 0
@@ -146,7 +146,7 @@ function parseHtmlImageAt(source: string, start: number): MarkdownImageSizeMatch
   const tag = tagMatch[0]
   const attributes = readHtmlAttributes(tag)
   const imageSource = attributes.get('src') ?? ''
-  if (!FLOWDESK_IMAGE_SOURCE_PATTERN.test(imageSource)) return null
+  if (!MANAGED_IMAGE_SOURCE_PATTERN.test(imageSource)) return null
 
   const style = attributes.get('style') ?? ''
   const scaleMatch = style.match(ZOOM_STYLE_PATTERN) ?? style.match(WIDTH_STYLE_PATTERN)
@@ -177,7 +177,7 @@ function parseMarkdownImageAt(source: string, start: number): MarkdownImageSizeM
   if (destinationEnd === -1) return null
 
   const imageSource = source.slice(altEnd + 2, destinationEnd).trim()
-  if (!FLOWDESK_IMAGE_SOURCE_PATTERN.test(imageSource)) return null
+  if (!MANAGED_IMAGE_SOURCE_PATTERN.test(imageSource)) return null
 
   const syntaxEnd = destinationEnd + 1
   const suffixMatch = source.slice(syntaxEnd).match(SIZE_SUFFIX_PATTERN)
@@ -206,13 +206,13 @@ function normalizeWidth(width: number | null): number | null {
     : Math.min(MAX_IMAGE_WIDTH, Math.max(MIN_IMAGE_WIDTH, Math.round(width)))
 }
 
-export function createFlowdeskImageHtml(
+export function createManagedImageHtml(
   source: string,
   alt = '图片',
   width: number | null = null
 ): string {
-  if (!FLOWDESK_IMAGE_SOURCE_PATTERN.test(source)) {
-    throw new Error('不是有效的 FlowDesk 图片地址')
+  if (!MANAGED_IMAGE_SOURCE_PATTERN.test(source)) {
+    throw new Error('不是有效的 CHMarkDown 图片地址')
   }
 
   const normalizedWidth = normalizeWidth(width)
@@ -242,7 +242,7 @@ export function findResizableMarkdownImages(source: string): MarkdownImageSizeMa
   return images
 }
 
-export function hasFlowdeskImages(source: string): boolean {
+export function hasManagedImages(source: string): boolean {
   return findResizableMarkdownImages(source).length > 0
 }
 
@@ -254,11 +254,11 @@ export function updateMarkdownImageWidth(
   const image = findResizableMarkdownImages(source)[imageIndex]
   if (!image) return source
 
-  const replacement = createFlowdeskImageHtml(image.source, image.alt, width)
+  const replacement = createManagedImageHtml(image.source, image.alt, width)
   return `${source.slice(0, image.start)}${replacement}${source.slice(image.end)}`
 }
 
-export function convertFlowdeskImagesForExport(source: string): ExportedFlowdeskImages {
+export function convertManagedImagesForExport(source: string): ExportedManagedImages {
   const images = findResizableMarkdownImages(source)
   if (images.length === 0) return { content: source, imageFiles: [] }
 
@@ -267,7 +267,7 @@ export function convertFlowdeskImagesForExport(source: string): ExportedFlowdesk
   let cursor = 0
 
   for (const image of images) {
-    const sourceMatch = image.source.match(FLOWDESK_IMAGE_SOURCE_PATTERN)
+    const sourceMatch = image.source.match(MANAGED_IMAGE_SOURCE_PATTERN)
     if (!sourceMatch) continue
 
     const filename = sourceMatch[1]
@@ -283,7 +283,7 @@ export function convertFlowdeskImagesForExport(source: string): ExportedFlowdesk
 }
 
 export function configureMarkdownImageSizing(markdown: MarkdownIt): void {
-  markdown.inline.ruler.before('emphasis', 'flowdesk_html_image', (state, silent) => {
+  markdown.inline.ruler.before('emphasis', 'chmarkdown_html_image', (state, silent) => {
     if (state.src[state.pos] !== '<') return false
 
     const image = parseHtmlImageAt(state.src, state.pos)
@@ -297,14 +297,14 @@ export function configureMarkdownImageSizing(markdown: MarkdownIt): void {
     imageToken.attrSet('src', image.source)
     imageToken.attrSet('alt', image.alt)
     imageToken.meta = {
-      flowdeskHtmlImage: true,
+      managedHtmlImage: true,
       width: image.width,
-    } satisfies FlowdeskImageTokenMeta
+    } satisfies ManagedImageTokenMeta
     state.pos = image.end
     return true
   })
 
-  markdown.core.ruler.after('inline', 'flowdesk_image_sizing', (state) => {
+  markdown.core.ruler.after('inline', 'chmarkdown_image_sizing', (state) => {
     const environment = state.env as MarkdownRenderEnvironment
     let imageIndex = 0
 
@@ -317,12 +317,12 @@ export function configureMarkdownImageSizing(markdown: MarkdownIt): void {
         if (imageToken.type !== 'image') continue
 
         const source = imageToken.attrGet('src') ?? ''
-        if (!FLOWDESK_IMAGE_SOURCE_PATTERN.test(source)) continue
+        if (!MANAGED_IMAGE_SOURCE_PATTERN.test(source)) continue
 
-        const meta = imageToken.meta as FlowdeskImageTokenMeta | null
-        let width = meta?.flowdeskHtmlImage ? meta.width : null
+        const meta = imageToken.meta as ManagedImageTokenMeta | null
+        let width = meta?.managedHtmlImage ? meta.width : null
 
-        if (!meta?.flowdeskHtmlImage) {
+        if (!meta?.managedHtmlImage) {
           const suffixToken = children[tokenIndex + 1]
           const suffixMatch = suffixToken?.type === 'text'
             ? suffixToken.content.match(SIZE_SUFFIX_PATTERN)
@@ -335,14 +335,14 @@ export function configureMarkdownImageSizing(markdown: MarkdownIt): void {
 
         imageToken.attrSet('data-image-index', String(imageIndex))
         imageToken.attrSet('data-image-width', width === null ? 'original' : String(width))
-        imageToken.attrJoin('class', 'flowdesk-resizable-image')
+        imageToken.attrJoin('class', 'chmarkdown-resizable-image')
         imageToken.attrSet('title', '点击调整图片大小')
 
         if (width !== null) {
           imageToken.attrSet('style', `zoom:${width}%;max-width:100%`)
         }
         if (environment.selectedImageIndex === imageIndex) {
-          imageToken.attrJoin('class', 'flowdesk-resizable-image--selected')
+          imageToken.attrJoin('class', 'chmarkdown-resizable-image--selected')
         }
 
         imageIndex += 1

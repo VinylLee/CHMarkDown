@@ -6,19 +6,6 @@ declare module '*.vue' {
   export default component
 }
 
-interface Todo {
-  id: string
-  title: string
-  description: string
-  priority: 'low' | 'medium' | 'high'
-  dueDate: string | null
-  completed: boolean
-  createdAt: string
-  updatedAt: string
-}
-
-type CreateTodoInput = Pick<Todo, 'title' | 'description' | 'priority' | 'dueDate'>
-
 interface Note {
   id: string
   title: string
@@ -35,12 +22,6 @@ interface Window {
       ready: () => void
       onCloseRequested: (callback: (requestId: number) => void) => () => void
       respondToClose: (requestId: number, allowClose: boolean) => void
-    }
-    todos: {
-      getAll: () => Promise<Todo[]>
-      add: (input: CreateTodoInput) => Promise<Todo>
-      update: (id: string, updates: Partial<CreateTodoInput & { completed: boolean }>) => Promise<Todo>
-      delete: (id: string) => Promise<void>
     }
     notes: {
       getAll: () => Promise<Note[]>

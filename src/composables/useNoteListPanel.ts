@@ -3,8 +3,8 @@ import { useResizable } from './useResizable'
 import { useLocalStorage } from './useLocalStorage'
 import type { UseResizableReturn } from './useResizable'
 
-const STORAGE_KEY_WIDTH = 'flowdesk:notelist:width'
-const STORAGE_KEY_COLLAPSED = 'flowdesk:notelist:collapsed'
+const STORAGE_KEY_WIDTH = 'chmarkdown:notelist:width'
+const STORAGE_KEY_COLLAPSED = 'chmarkdown:notelist:collapsed'
 const MIN_WIDTH = 180
 const MAX_WIDTH = 420
 const DEFAULT_WIDTH = 260

@@ -121,7 +121,7 @@ import { useConfirm } from '../composables/useConfirm'
 import ImageSizeControl from './ImageSizeControl.vue'
 import {
   configureMarkdownImageSizing,
-  createFlowdeskImageHtml,
+  createManagedImageHtml,
   findResizableMarkdownImages,
   updateMarkdownImageWidth,
 } from '../utils/markdownImageSize'
@@ -136,7 +136,7 @@ const md = new MarkdownIt({
 configureMarkdownImageSizing(md)
 configureMarkdownSourceMap(md)
 
-const ALLOWED_URI_REGEXP = /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|flowdesk):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i
+const ALLOWED_URI_REGEXP = /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|chmarkdown):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i
 
 const props = defineProps<{
   note: Note | null
@@ -325,7 +325,7 @@ async function handleInsertImage(): Promise<void> {
   try {
     const imageUrl = await window.electronAPI.notes.uploadImage()
     if (imageUrl) {
-      editContent.value += `\n${createFlowdeskImageHtml(imageUrl)}\n`
+      editContent.value += `\n${createManagedImageHtml(imageUrl)}\n`
       isDirty.value = true
       selectLastImage()
     }
@@ -346,7 +346,7 @@ async function handlePaste(e: ClipboardEvent): Promise<void> {
       try {
         const buffer = await file.arrayBuffer()
         const imageUrl = await window.electronAPI.notes.pasteImage(buffer, file.type)
-        editContent.value += `\n${createFlowdeskImageHtml(imageUrl)}\n`
+        editContent.value += `\n${createManagedImageHtml(imageUrl)}\n`
         isDirty.value = true
         selectLastImage()
       } catch (err) {
@@ -711,20 +711,20 @@ onUnmounted(() => {
   box-shadow: var(--shadow-sm);
 }
 
-.content-preview :deep(.flowdesk-resizable-image) {
+.content-preview :deep(.chmarkdown-resizable-image) {
   cursor: pointer;
   outline: 2px solid transparent;
   outline-offset: 3px;
   transition: outline-color 0.16s ease, box-shadow 0.16s ease, filter 0.16s ease;
 }
 
-.content-preview :deep(.flowdesk-resizable-image:hover) {
+.content-preview :deep(.chmarkdown-resizable-image:hover) {
   outline-color: rgba(74, 158, 255, 0.34);
   box-shadow: 0 4px 14px rgba(43, 110, 181, 0.15);
   filter: saturate(1.03);
 }
 
-.content-preview :deep(.flowdesk-resizable-image--selected) {
+.content-preview :deep(.chmarkdown-resizable-image--selected) {
   outline-color: var(--color-primary);
   box-shadow: 0 5px 18px rgba(43, 110, 181, 0.2);
 }

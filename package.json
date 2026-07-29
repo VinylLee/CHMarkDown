@@ -1,12 +1,12 @@
 {
-  "name": "flowdesk",
-  "productName": "FlowDesk",
-  "version": "1.0.2",
-  "description": "Windows 本地效率工具 - 待办事项与灵感记录",
+  "name": "chmarkdown",
+  "productName": "CHMarkDown",
+  "version": "0.1.0",
+  "description": "Windows 本地 Markdown 笔记工具",
   "main": "dist-electron/main.js",
   "build": {
-    "appId": "com.flowdesk.desktop",
-    "productName": "FlowDesk",
+    "appId": "com.chmarkdown.desktop",
+    "productName": "CHMarkDown",
     "asar": true,
     "directories": {
       "output": "release"
@@ -17,19 +17,12 @@
       "package.json"
     ],
     "win": {
-      "icon": "resources/flowdesk.ico",
       "signAndEditExecutable": false
     },
     "portable": {
-      "artifactName": "FlowDesk-${version}-portable-${arch}.${ext}",
+      "artifactName": "CHMarkDown-${version}-portable-${arch}.${ext}",
       "useZip": true
-    },
-    "extraResources": [
-      {
-        "from": "resources/flowdesk.ico",
-        "to": "flowdesk.ico"
-      }
-    ]
+    }
   },
   "scripts": {
     "dev": "vite",
@@ -46,8 +39,7 @@
     "archiver": "^8.0.0",
     "dompurify": "^3.4.12",
     "markdown-it": "^14.3.0",
-    "vue": "^3.4.0",
-    "vue-router": "^4.3.0"
+    "vue": "^3.4.0"
   },
   "devDependencies": {
     "@types/archiver": "^8.0.0",

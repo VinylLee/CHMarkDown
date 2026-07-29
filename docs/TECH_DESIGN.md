@@ -1,76 +1,38 @@
-# FlowDesk 技术设计
+# CHMarkDown 技术设计
 
 ## 1. 技术方案
 
-### 桌面应用
+- 桌面应用：Electron
+- 前端：Vue 3、TypeScript、Vite、原生 CSS
+- Markdown：markdown-it
+- 内容净化：DOMPurify
+- 数据保存：本地 JSON 文件
+- 图片保存：应用用户数据目录下的 `images/`
 
-使用 Electron。
-
-### 前端
-
-- Vue 3
-- TypeScript
-- Vite
-- 原生 CSS
-
-### Markdown
-
-- markdown-it：将 Markdown 转换为 HTML
-- DOMPurify：清理 Markdown 预览内容
-
-### 数据保存
-
-第一版使用本地 JSON 文件：
-
-- `todos.json`
-- `notes.json`
-
-图片复制到应用自己的 `images` 文件夹。
-
-第一版不使用后端和数据库。
+不使用后端、数据库、登录或云同步。
 
 ## 2. 项目结构
 
 ```text
-flowdesk/
-├── AGENTS.md
-├── docs/
-│   ├── RESEARCH.md
-│   ├── PRD.md
-│   ├── TECH_DESIGN.md
-│   └── TASKS.md
+CHMarkDown/
 ├── electron/
 │   ├── main.ts
 │   ├── preload.ts
-│   └── services/
+│   ├── services/noteService.ts
+│   └── windowCloseCoordinator.ts
 ├── src/
 │   ├── components/
-│   ├── views/
-│   ├── types/
+│   ├── composables/
+│   ├── utils/
+│   ├── views/NotesView.vue
 │   ├── App.vue
 │   └── main.ts
+├── docs/
 ├── package.json
 └── vite.config.ts
 ```
 
 ## 3. 数据模型
-
-### Todo
-
-```ts
-interface Todo {
-  id: string
-  title: string
-  description: string
-  priority: 'low' | 'medium' | 'high'
-  dueDate: string | null
-  completed: boolean
-  createdAt: string
-  updatedAt: string
-}
-```
-
-### Note
 
 ```ts
 interface Note {
@@ -82,50 +44,31 @@ interface Note {
 }
 ```
 
-## 4. 数据读写
+## 4. 数据与图片
 
-- Vue 页面不直接读写本地文件
-- Vue 通过 Electron preload 提供的接口操作数据
-- Electron 主进程负责读写 JSON 文件和图片
-- 所有数据保存在应用自己的用户数据目录中
+- 笔记保存在 Electron 用户数据目录中的 `notes.json`
+- 图片复制到同一用户数据目录下的 `images/`
+- Vue 页面通过 preload 暴露的 API 调用 IPC
+- Electron 主进程负责文件读写、图片复制和笔记导出
+- 包含本地图片的笔记导出为 ZIP；否则导出为 Markdown 文件
 
-## 5. 图片处理
+## 5. 页面结构
 
-1. 用户点击插入图片
-2. 选择电脑中的图片
-3. 应用将图片复制到自己的图片目录
-4. 在 Markdown 中插入图片引用
-5. 即使原图片被移动，应用中的图片仍然可以显示
+- 左侧：可调整宽度和折叠的笔记列表
+- 右侧：标题、Markdown 编辑区、预览区和工具栏
+- 全局：操作提示、确认弹窗、关闭前未保存检查
 
-## 6. 页面设计
+## 6. Electron 安全
 
-### 待办页面
-
-- 新增待办区域
-- 待办列表
-- 编辑、完成和删除操作
-
-### 灵感记录页面
-
-- 左侧显示笔记列表
-- 右侧显示标题、Markdown 编辑区和预览区
-- 提供新建、保存、插入图片和删除按钮
-
-## 7. Electron 安全要求
-
-- 启用 `contextIsolation`
+- `contextIsolation: true`
+- `nodeIntegration: false`
 - 渲染进程不能直接使用 Node.js
-- 本地文件操作通过 preload 和 IPC 完成
-- Markdown 预览内容需要清理
+- 本地文件操作只通过 preload 和 IPC
+- Markdown 渲染结果通过 DOMPurify 清理
 
-## 8. 启动和构建
-
-预期使用：
+## 7. 验证
 
 ```bash
-npm install
-npm run dev
+npm test
 npm run build
 ```
-
-具体命令由项目初始化时确定。

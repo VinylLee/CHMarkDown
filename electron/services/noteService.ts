@@ -2,7 +2,7 @@ import { app } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { convertFlowdeskImagesForExport } from '../../src/utils/markdownImageSize'
+import { convertManagedImagesForExport } from '../../src/utils/markdownImageSize'
 
 export interface Note {
   id: string
@@ -111,7 +111,7 @@ export function copyImage(sourcePath: string): string {
 
   fs.copyFileSync(sourcePath, destPath)
 
-  return `flowdesk://images/${filename}`
+  return `chmarkdown://images/${filename}`
 }
 
 export function saveImageFromBuffer(buffer: Buffer, mimeType: string): string {
@@ -130,7 +130,7 @@ export function saveImageFromBuffer(buffer: Buffer, mimeType: string): string {
 
   fs.writeFileSync(destPath, buffer)
 
-  return `flowdesk://images/${filename}`
+  return `chmarkdown://images/${filename}`
 }
 
 export async function exportNoteFile(noteId: string, destPath: string): Promise<{ hasImages: boolean }> {
@@ -140,7 +140,7 @@ export async function exportNoteFile(noteId: string, destPath: string): Promise<
     throw new Error('笔记不存在')
   }
 
-  const exported = convertFlowdeskImagesForExport(note.content)
+  const exported = convertManagedImagesForExport(note.content)
   const imageFiles = exported.imageFiles
 
   if (imageFiles.length === 0) {
