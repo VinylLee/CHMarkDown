@@ -69,6 +69,7 @@
     <!-- Resize handle (hidden when collapsed) -->
     <ResizeHandle
       v-if="!panel.state.collapsed"
+      class="notelist-resize-handle"
       :isDragging="panel.resizeState.isResizing"
       @resizestart="panel.onResizeMouseDown"
     />
@@ -159,6 +160,14 @@ function formatTime(isoStr: string): string {
 
 .note-list-panel--collapsed .note-list-content {
   opacity: 0;
+}
+
+/* Position the resize handle on the right edge */
+.notelist-resize-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
 }
 
 .panel-header {
