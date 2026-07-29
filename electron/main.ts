@@ -101,7 +101,7 @@ function installApplicationMenu(): void {
               type: 'info' as const,
               title: '关于 FlowDesk',
               message: 'FlowDesk',
-              detail: 'Windows 本地效率工具\n版本 1.0.0',
+              detail: 'Windows 本地效率工具\n版本 1.0.1',
               buttons: ['确定'],
             }
             if (mainWindow && !mainWindow.isDestroyed()) {

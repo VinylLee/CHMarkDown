@@ -11,14 +11,38 @@
 
 <script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue'
+import { useRoute } from 'vue-router'
 import Sidebar from './components/Sidebar.vue'
 import Toast from './components/Toast.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import { useToast } from './composables/useToast'
+import { useSidebarPanel } from './composables/useSidebarPanel'
+import { useNoteListPanel } from './composables/useNoteListPanel'
 import { runAppCloseGuard } from './composables/useAppCloseGuard'
 
 const { toasts, show } = useToast()
+const sidebarPanel = useSidebarPanel()
+const noteListPanel = useNoteListPanel()
+const route = useRoute()
 let removeCloseListener: (() => void) | null = null
+let removeKeyListener: (() => void) | null = null
+
+function handleGlobalKeydown(event: KeyboardEvent): void {
+  // Ctrl+B or Cmd+B: toggle sidebar
+  if ((event.ctrlKey || event.metaKey) && event.key === 'b' && !event.shiftKey) {
+    event.preventDefault()
+    sidebarPanel.toggle()
+    return
+  }
+  // Ctrl+Shift+B or Cmd+Shift+B: toggle notelist (only on /notes)
+  if ((event.ctrlKey || event.metaKey) && event.key === 'B' && event.shiftKey) {
+    if (route.path === '/notes') {
+      event.preventDefault()
+      noteListPanel.toggle()
+    }
+    return
+  }
+}
 
 onMounted(() => {
   removeCloseListener = window.electronAPI.app.onCloseRequested(async (requestId) => {
@@ -32,10 +56,14 @@ onMounted(() => {
     window.electronAPI.app.respondToClose(requestId, allowClose)
   })
   window.electronAPI.app.ready()
+
+  window.addEventListener('keydown', handleGlobalKeydown)
+  removeKeyListener = () => window.removeEventListener('keydown', handleGlobalKeydown)
 })
 
 onUnmounted(() => {
   removeCloseListener?.()
+  removeKeyListener?.()
 })
 </script>
 

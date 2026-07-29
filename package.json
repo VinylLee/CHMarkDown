@@ -1,7 +1,7 @@
 {
   "name": "flowdesk",
   "productName": "FlowDesk",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Windows 本地效率工具 - 待办事项与灵感记录",
   "main": "dist-electron/main.js",
   "build": {

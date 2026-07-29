@@ -23,6 +23,7 @@ import NoteList from '../components/NoteList.vue'
 import NoteEditor from '../components/NoteEditor.vue'
 import { useConfirm } from '../composables/useConfirm'
 import { useToast } from '../composables/useToast'
+import { useNoteListPanel } from '../composables/useNoteListPanel'
 import { resolveUnsavedChanges } from '../utils/resolveUnsavedChanges'
 import { registerAppCloseGuard } from '../composables/useAppCloseGuard'
 
@@ -33,6 +34,7 @@ const loading = ref(true)
 const error = ref('')
 const { show } = useToast()
 const { requestConfirm } = useConfirm()
+const noteListPanel = useNoteListPanel()
 const noteEditorRef = ref<InstanceType<typeof NoteEditor> | null>(null)
 let unregisterCloseGuard: (() => void) | null = null
 
@@ -144,11 +146,13 @@ async function handleDelete(id: string): Promise<void> {
 }
 
 onMounted(() => {
+  noteListPanel.activate()
   unregisterCloseGuard = registerAppCloseGuard(() => canLeaveCurrentNote('close'))
   loadNotes()
 })
 
 onUnmounted(() => {
+  noteListPanel.deactivate()
   unregisterCloseGuard?.()
 })
 
