@@ -12,6 +12,11 @@ import {
   saveImageFromBuffer,
   exportNoteFile,
 } from './services/noteService'
+import {
+  createMarkdownDefaultName,
+  readMarkdownFile,
+  writeMarkdownFile,
+} from './services/markdownFileService'
 import { hasManagedImages } from '../src/utils/markdownImageSize'
 
 const APP_NAME = 'CHMarkDown'
@@ -32,6 +37,12 @@ function requestMainWindowClose(): void {
   }
 }
 
+function sendFileCommand(command: 'open' | 'save' | 'save-as'): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('app:file-command', command)
+  }
+}
+
 function getWindowIconPath(): string {
   return app.isPackaged
     ? path.join(process.resourcesPath, 'chmarkdown.ico')
@@ -43,6 +54,22 @@ function installApplicationMenu(): void {
     {
       label: '文件',
       submenu: [
+        {
+          label: '打开…',
+          accelerator: 'Ctrl+O',
+          click: () => sendFileCommand('open'),
+        },
+        {
+          label: '保存',
+          accelerator: 'Ctrl+S',
+          click: () => sendFileCommand('save'),
+        },
+        {
+          label: '另存为…',
+          accelerator: 'Ctrl+Shift+S',
+          click: () => sendFileCommand('save-as'),
+        },
+        { type: 'separator' },
         {
           label: '退出',
           accelerator: 'Alt+F4',
@@ -95,7 +122,7 @@ function installApplicationMenu(): void {
               type: 'info' as const,
               title: '关于 CHMarkDown',
               message: 'CHMarkDown',
-              detail: `Windows 本地 Markdown 笔记工具\n版本 ${app.getVersion()}`,
+              detail: `Windows 本地 Markdown 编辑与笔记工具\n版本 ${app.getVersion()}`,
               buttons: ['确定'],
             }
             if (mainWindow && !mainWindow.isDestroyed()) {
@@ -138,6 +165,43 @@ function registerIpcHandlers(): void {
     }
     mainWindowCloseCoordinator?.handleDecision(requestId, allowClose)
   })
+
+  ipcMain.handle('files:openMarkdown', async () => {
+    if (!mainWindow) {
+      throw new Error('应用窗口未就绪')
+    }
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: '打开 Markdown 文件',
+      filters: [{ name: 'Markdown 文件', extensions: ['md', 'markdown'] }],
+      properties: ['openFile'],
+    })
+    if (result.canceled || result.filePaths.length === 0) {
+      return null
+    }
+    return readMarkdownFile(result.filePaths[0])
+  })
+
+  ipcMain.handle('files:saveMarkdown', (_event, filePath: string, content: string) => {
+    return writeMarkdownFile(filePath, content)
+  })
+
+  ipcMain.handle(
+    'files:saveMarkdownAs',
+    async (_event, suggestedName: string, content: string) => {
+      if (!mainWindow) {
+        throw new Error('应用窗口未就绪')
+      }
+      const result = await dialog.showSaveDialog(mainWindow, {
+        title: '另存为 Markdown 文件',
+        defaultPath: createMarkdownDefaultName(suggestedName),
+        filters: [{ name: 'Markdown 文件', extensions: ['md', 'markdown'] }],
+      })
+      if (result.canceled || !result.filePath) {
+        return null
+      }
+      return writeMarkdownFile(result.filePath, content)
+    }
+  )
 
   // Note handlers
   ipcMain.handle('notes:getAll', () => {

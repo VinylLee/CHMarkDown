@@ -2,11 +2,12 @@
 
 ## 项目目标
 
-CHMarkDown 是一个 Windows 本地 Markdown 笔记工具。
+CHMarkDown 是一个 Windows 本地 Markdown 编辑与笔记工具。
 
 当前范围只包括：
 
 - Markdown 笔记的新建、编辑和删除
+- 本地 Markdown 文件的打开、保存和另存为
 - Markdown 实时预览
 - 本地数据保存
 - 本地图片插入、粘贴与导出

@@ -1,8 +1,12 @@
 <template>
   <div class="note-editor" v-if="note">
     <div class="editor-toolbar">
-      <input v-model="editTitle" class="input-title" placeholder="笔记标题" maxlength="200" @input="markDirty"
-        @keydown.enter.prevent="handleSave" />
+      <div class="document-heading">
+        <input v-model="editTitle" class="input-title" placeholder="笔记标题" maxlength="200"
+          :readonly="Boolean(documentPath)" :title="documentPath ?? undefined" @input="markDirty"
+          @keydown.enter.prevent="handleSave" />
+        <span v-if="documentPath" class="file-path" :title="documentPath">{{ documentPath }}</span>
+      </div>
 
       <div class="toolbar-actions">
         <button class="btn-tool btn-tool--primary" @click="toggleEditingMode" :title="isEditing ? '切换为纯预览' : '切换为分栏编辑'">
@@ -19,7 +23,8 @@
 
         <span class="toolbar-sep"></span>
 
-        <button class="btn-tool" @click="handleInsertImage" title="插入图片">
+        <button class="btn-tool" @click="handleInsertImage" :disabled="Boolean(documentPath)"
+          :title="documentPath ? '外部文件的图片插入将在后续版本支持' : '插入图片'">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
             <rect x="1.5" y="2.5" width="11" height="9" rx="1.5" stroke="currentColor" stroke-width="1.3" />
             <circle cx="4.5" cy="5.5" r="1.2" stroke="currentColor" stroke-width="1" />
@@ -49,9 +54,9 @@
           {{ isSaving ? '保存中…' : isDirty ? '保存 *' : '已保存' }}
         </button>
 
-        <span class="toolbar-sep"></span>
+        <span v-if="!documentPath" class="toolbar-sep"></span>
 
-        <button class="btn-tool" @click="handleExport" title="导出笔记">
+        <button v-if="!documentPath" class="btn-tool" @click="handleExport" title="导出笔记">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
             <path d="M6 1.5V8M6 8L3.5 5.5M6 8L8.5 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
               stroke-linejoin="round" />
@@ -60,7 +65,7 @@
           导出
         </button>
 
-        <button class="btn-tool btn-tool--danger" @click="handleDelete" title="删除">
+        <button v-if="!documentPath" class="btn-tool btn-tool--danger" @click="handleDelete" title="删除">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
             <path d="M2 3.5H10M4.5 5V8.5M7.5 5V8.5M3 3.5L3.8 10.5H8.2L9 3.5" stroke="currentColor" stroke-width="1.2"
               stroke-linecap="round" stroke-linejoin="round" />
@@ -140,6 +145,7 @@ const ALLOWED_URI_REGEXP = /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|c
 
 const props = defineProps<{
   note: Note | null
+  documentPath?: string | null
   startInEditMode?: boolean
   saveNote: (data: { id: string; title: string; content: string }) => Promise<boolean>
 }>()
@@ -318,6 +324,7 @@ async function handleSave(): Promise<boolean> {
 }
 
 async function handleInsertImage(): Promise<void> {
+  if (props.documentPath) return
   if (!isEditing.value) {
     isEditing.value = true
     await nextTick()
@@ -335,6 +342,7 @@ async function handleInsertImage(): Promise<void> {
 }
 
 async function handlePaste(e: ClipboardEvent): Promise<void> {
+  if (props.documentPath) return
   const items = e.clipboardData?.items
   if (!items) return
 
@@ -361,10 +369,6 @@ function handleKeydown(e: KeyboardEvent): void {
   if (e.key === 'Escape' && selectedImageIndex.value !== null) {
     clearImageSelection()
     return
-  }
-  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-    e.preventDefault()
-    void handleSave()
   }
 }
 
@@ -405,7 +409,16 @@ async function handleDelete(): Promise<void> {
   }
 }
 
-defineExpose({ isDirty, save: handleSave })
+function getDraft(): { id: string; title: string; content: string } | null {
+  if (!props.note) return null
+  return {
+    id: props.note.id,
+    title: editTitle.value.trim() || '未命名笔记',
+    content: editContent.value,
+  }
+}
+
+defineExpose({ isDirty, save: handleSave, getDraft })
 
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
@@ -438,9 +451,17 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
-.input-title {
+.document-heading {
   flex: 1;
-  min-width: 120px;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.input-title {
+  width: 100%;
+  min-width: 0;
   padding: 5px 10px;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
@@ -450,6 +471,20 @@ onUnmounted(() => {
   background: transparent;
   color: var(--color-text);
   transition: all var(--transition);
+}
+
+.input-title:read-only {
+  cursor: default;
+}
+
+.file-path {
+  padding: 0 10px;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .input-title:focus {
@@ -487,6 +522,16 @@ onUnmounted(() => {
 .btn-tool:hover {
   border-color: #c0c7d0;
   color: var(--color-text);
+}
+
+.btn-tool:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.btn-tool:disabled:hover {
+  border-color: var(--color-border);
+  color: var(--color-text-secondary);
 }
 
 .btn-tool--primary {

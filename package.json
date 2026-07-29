@@ -1,8 +1,8 @@
 {
   "name": "chmarkdown",
   "productName": "CHMarkDown",
-  "version": "0.1.1",
-  "description": "Windows 本地 Markdown 笔记工具",
+  "version": "0.2.0",
+  "description": "Windows 本地 Markdown 编辑与笔记工具",
   "main": "dist-electron/main.js",
   "build": {
     "appId": "com.chmarkdown.desktop",

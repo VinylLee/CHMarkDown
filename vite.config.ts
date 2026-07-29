@@ -6,37 +6,41 @@ import electron from 'vite-plugin-electron'
 import renderer from 'vite-plugin-electron-renderer'
 import { resolve } from 'path'
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [
     vue(),
-    electron([
-      {
-        entry: 'electron/main.ts',
-        vite: {
-          build: {
-            outDir: 'dist-electron',
-            rollupOptions: {
-              external: ['electron'],
+    ...(mode === 'test'
+      ? []
+      : [
+          electron([
+            {
+              entry: 'electron/main.ts',
+              vite: {
+                build: {
+                  outDir: 'dist-electron',
+                  rollupOptions: {
+                    external: ['electron'],
+                  },
+                },
+              },
             },
-          },
-        },
-      },
-      {
-        entry: 'electron/preload.ts',
-        onstart(args) {
-          args.reload()
-        },
-        vite: {
-          build: {
-            outDir: 'dist-electron',
-            rollupOptions: {
-              external: ['electron'],
+            {
+              entry: 'electron/preload.ts',
+              onstart(args) {
+                args.reload()
+              },
+              vite: {
+                build: {
+                  outDir: 'dist-electron',
+                  rollupOptions: {
+                    external: ['electron'],
+                  },
+                },
+              },
             },
-          },
-        },
-      },
-    ]),
-    renderer(),
+          ]),
+          renderer(),
+        ]),
   ],
   resolve: {
     alias: {
@@ -46,4 +50,4 @@ export default defineConfig({
   test: {
     include: ['src/**/*.test.ts', 'electron/**/*.test.ts'],
   },
-})
+}))

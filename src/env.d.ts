@@ -15,6 +15,13 @@ interface Note {
 }
 
 type CreateNoteInput = Pick<Note, 'title' | 'content'>
+type FileCommand = 'open' | 'save' | 'save-as'
+
+interface MarkdownFileDocument {
+  filePath: string
+  fileName: string
+  content: string
+}
 
 interface Window {
   electronAPI: {
@@ -22,6 +29,15 @@ interface Window {
       ready: () => void
       onCloseRequested: (callback: (requestId: number) => void) => () => void
       respondToClose: (requestId: number, allowClose: boolean) => void
+      onFileCommand: (callback: (command: FileCommand) => void) => () => void
+    }
+    files: {
+      openMarkdown: () => Promise<MarkdownFileDocument | null>
+      saveMarkdown: (filePath: string, content: string) => Promise<MarkdownFileDocument>
+      saveMarkdownAs: (
+        suggestedName: string,
+        content: string
+      ) => Promise<MarkdownFileDocument | null>
     }
     notes: {
       getAll: () => Promise<Note[]>
