@@ -2,14 +2,16 @@
   <div class="notes-view">
     <NoteList
       :notes="notes"
-      :selectedId="externalFile ? null : selectedId"
-      @select="trySelectNote"
+      :external-files="externalFiles"
+      :selectedId="selectedId"
+      @select="trySelectDocument"
+      @close="handleCloseListItem"
       @create="tryCreateNote"
     />
     <NoteEditor
       ref="noteEditorRef"
       :note="activeDocument"
-      :document-path="externalFile?.filePath ?? null"
+      :document-path="activeExternalFile?.filePath ?? null"
       :startInEditMode="startInEditMode"
       :save-note="handleSave"
       @delete="handleDelete"
@@ -26,10 +28,17 @@ import { useToast } from '../composables/useToast'
 import { useNoteListPanel } from '../composables/useNoteListPanel'
 import { resolveUnsavedChanges } from '../utils/resolveUnsavedChanges'
 import { registerAppCloseGuard } from '../composables/useAppCloseGuard'
+import {
+  createOpenMarkdownFile,
+  removeOpenMarkdownFile,
+  replaceOpenMarkdownFile,
+  upsertOpenMarkdownFile,
+} from '../utils/openMarkdownFiles'
+import type { OpenMarkdownFile } from '../utils/openMarkdownFiles'
 
 const notes = ref<Note[]>([])
 const selectedId = ref<string | null>(null)
-const externalFile = ref<MarkdownFileDocument | null>(null)
+const externalFiles = ref<OpenMarkdownFile[]>([])
 const startInEditMode = ref(false)
 const loading = ref(true)
 const error = ref('')
@@ -45,14 +54,19 @@ const selectedNote = computed(() => {
   return notes.value.find((n) => n.id === selectedId.value) || null
 })
 
+const activeExternalFile = computed(() => {
+  if (!selectedId.value) return null
+  return externalFiles.value.find((file) => file.id === selectedId.value) ?? null
+})
+
 const activeDocument = computed<Note | null>(() => {
-  if (externalFile.value) {
+  if (activeExternalFile.value) {
     return {
-      id: `file:${externalFile.value.filePath}`,
-      title: externalFile.value.fileName,
-      content: externalFile.value.content,
+      id: activeExternalFile.value.id,
+      title: activeExternalFile.value.fileName,
+      content: activeExternalFile.value.content,
       createdAt: '',
-      updatedAt: '',
+      updatedAt: activeExternalFile.value.openedAt,
     }
   }
   return selectedNote.value
@@ -76,11 +90,10 @@ async function canLeaveCurrentNote(reason: 'navigate' | 'close' = 'navigate'): P
   })
 }
 
-async function trySelectNote(id: string): Promise<void> {
-  if (!externalFile.value && id === selectedId.value) return
+async function trySelectDocument(id: string): Promise<void> {
+  if (id === selectedId.value) return
   if (!(await canLeaveCurrentNote())) return
   startInEditMode.value = false
-  externalFile.value = null
   selectedId.value = id
 }
 
@@ -88,9 +101,7 @@ async function tryCreateNote(): Promise<void> {
   if (!(await canLeaveCurrentNote())) return
   startInEditMode.value = true
   const created = await createNote()
-  if (created) {
-    externalFile.value = null
-  }
+  if (created) selectedId.value = created.id
 }
 
 async function loadNotes(): Promise<void> {
@@ -131,11 +142,16 @@ async function createNote(): Promise<Note | null> {
 
 async function handleSave(data: { id: string; title: string; content: string }): Promise<boolean> {
   error.value = ''
-  if (externalFile.value) {
+  if (activeExternalFile.value) {
     try {
-      externalFile.value = await window.electronAPI.files.saveMarkdown(
-        externalFile.value.filePath,
+      const savedFile = await window.electronAPI.files.saveMarkdown(
+        activeExternalFile.value.filePath,
         data.content
+      )
+      externalFiles.value = upsertOpenMarkdownFile(
+        externalFiles.value,
+        savedFile,
+        activeExternalFile.value.openedAt
       )
       show('文件已保存')
       return true
@@ -174,8 +190,8 @@ async function handleOpenFile(): Promise<void> {
     if (!(await canLeaveCurrentNote())) return
 
     startInEditMode.value = true
-    externalFile.value = openedFile
-    selectedId.value = null
+    externalFiles.value = upsertOpenMarkdownFile(externalFiles.value, openedFile)
+    selectedId.value = createOpenMarkdownFile(openedFile).id
     show(`已打开 ${openedFile.fileName}`)
   } catch (err) {
     error.value = '打开 Markdown 文件失败。'
@@ -194,13 +210,18 @@ async function handleSaveAs(): Promise<void> {
   error.value = ''
   try {
     const savedFile = await window.electronAPI.files.saveMarkdownAs(
-      externalFile.value?.fileName ?? draft.title,
+      activeExternalFile.value?.fileName ?? draft.title,
       draft.content
     )
     if (!savedFile) return
 
-    externalFile.value = savedFile
-    selectedId.value = null
+    const previousExternalId = activeExternalFile.value?.id ?? null
+    externalFiles.value = replaceOpenMarkdownFile(
+      externalFiles.value,
+      previousExternalId,
+      savedFile
+    )
+    selectedId.value = createOpenMarkdownFile(savedFile).id
     startInEditMode.value = true
     show(`已另存为 ${savedFile.fileName}`)
   } catch (err) {
@@ -228,13 +249,46 @@ async function handleFileCommand(command: FileCommand): Promise<void> {
   await editor.save()
 }
 
+function selectFallbackDocument(excludedId: string): void {
+  const nextExternalFile = externalFiles.value.find((file) => file.id !== excludedId)
+  const nextNote = notes.value.find((note) => note.id !== excludedId)
+  selectedId.value = nextExternalFile?.id ?? nextNote?.id ?? null
+}
+
+async function handleCloseListItem(id: string, kind: 'note' | 'file'): Promise<void> {
+  if (kind === 'file') {
+    if (id === selectedId.value && !(await canLeaveCurrentNote())) return
+    externalFiles.value = removeOpenMarkdownFile(externalFiles.value, id)
+    if (selectedId.value === id) {
+      selectFallbackDocument(id)
+    }
+    show('文件已从列表关闭')
+    return
+  }
+
+  const note = notes.value.find((item) => item.id === id)
+  if (!note) return
+  const result = await requestConfirm({
+    title: '删除本地笔记',
+    message: id === selectedId.value && noteEditorRef.value?.isDirty
+      ? `“${note.title || '未命名笔记'}”及其未保存修改将被永久删除。`
+      : `“${note.title || '未命名笔记'}”将被永久删除。`,
+    confirmText: '删除',
+    cancelText: '取消',
+    danger: true,
+  })
+  if (result === 'confirm') {
+    await handleDelete(id)
+  }
+}
+
 async function handleDelete(id: string): Promise<void> {
   error.value = ''
   try {
     await window.electronAPI.notes.delete(id)
     notes.value = notes.value.filter((n) => n.id !== id)
     if (selectedId.value === id) {
-      selectedId.value = notes.value.length > 0 ? notes.value[0].id : null
+      selectFallbackDocument(id)
     }
     show('笔记已删除')
   } catch (err) {

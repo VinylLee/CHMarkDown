@@ -54,6 +54,11 @@ interface MarkdownFileDocument {
   fileName: string
   content: string
 }
+
+interface OpenMarkdownFile extends MarkdownFileDocument {
+  id: string
+  openedAt: string
+}
 ```
 
 ## 4. 数据与图片
@@ -71,12 +76,15 @@ interface MarkdownFileDocument {
 - 渲染进程只保存文件路径、文件名和编辑内容，不直接调用 Node.js
 - “保存”通过 IPC 写回当前外部文件；本地笔记仍写入 `notes.json`
 - “另存为”显示系统保存对话框，成功后将当前编辑器切换到新文件路径
+- 已打开的外部文件保存在渲染进程的会话状态中，并与本地笔记合并显示
+- 外部文件使用忽略路径大小写的稳定 ID，同一路径重复打开时刷新原条目而不重复添加
+- 关闭外部文件只清除会话条目；关闭本地笔记等同于删除，必须经过确认
 - 打开其他内容或关闭应用前，复用统一的未保存修改检查
 - 本版本不解析外部文档中的相对图片路径，也不检测其他程序对文件的并发修改
 
 ## 6. 页面结构
 
-- 左侧：可调整宽度和折叠的笔记列表
+- 左侧：可调整宽度和折叠的文档列表，统一展示本地笔记和已打开的外部文件
 - 右侧：标题、Markdown 编辑区、预览区和工具栏
 - 全局：操作提示、确认弹窗、关闭前未保存检查
 

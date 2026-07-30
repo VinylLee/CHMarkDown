@@ -20,10 +20,10 @@
     <!-- Content: hidden when collapsed -->
     <div class="note-list-content" v-show="!panel.state.collapsed">
       <div class="panel-header">
-        <span class="panel-title">笔记列表</span>
+        <span class="panel-title">文档列表</span>
         <div class="panel-header-actions">
           <span class="notelist-shortcut">Ctrl+Shift+B</span>
-          <span class="panel-count" v-if="notes.length > 0">{{ notes.length }}</span>
+          <span class="panel-count" v-if="documentCount > 0">{{ documentCount }}</span>
           <button
             class="notelist-collapse-btn"
             @click="panel.collapse()"
@@ -44,24 +44,37 @@
         新建笔记
       </button>
       <div class="note-list">
-        <div v-if="notes.length === 0" class="empty-hint">
+        <div v-if="documentCount === 0" class="empty-hint">
           <div class="empty-icon">📝</div>
           <p>还没有笔记</p>
           <p class="empty-sub">点击上方按钮创建第一篇</p>
         </div>
         <div
-          v-for="note in sortedNotes"
-          :key="note.id"
+          v-for="document in sortedDocuments"
+          :key="document.id"
           class="note-item"
-          :class="{ 'note-item--active': note.id === selectedId }"
-          @click="$emit('select', note.id)"
+          :class="{ 'note-item--active': document.id === selectedId }"
+          @click="$emit('select', document.id)"
         >
           <div class="note-item-head">
-            <span class="note-item-title">{{ note.title || '未命名笔记' }}</span>
+            <span class="note-item-title">
+              <span v-if="document.kind === 'file'" class="document-kind">文件</span>
+              <span class="note-title-text">{{ document.title || '未命名笔记' }}</span>
+            </span>
+            <button
+              class="note-item-close"
+              :title="document.kind === 'file' ? '关闭文件' : '删除本地笔记'"
+              :aria-label="document.kind === 'file' ? `关闭 ${document.title}` : `删除 ${document.title}`"
+              @click.stop="$emit('close', document.id, document.kind)"
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                <path d="M2 2L8 8M8 2L2 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+              </svg>
+            </button>
           </div>
           <div class="note-item-foot">
-            <span class="note-item-time">{{ formatTime(note.updatedAt) }}</span>
-            <span class="note-item-preview">{{ contentPreview(note.content) }}</span>
+            <span class="note-item-time">{{ formatTime(document.updatedAt) }}</span>
+            <span class="note-item-preview">{{ contentPreview(document.content) }}</span>
           </div>
         </div>
       </div>
@@ -81,21 +94,51 @@
 import { computed } from 'vue'
 import { useNoteListPanel } from '../composables/useNoteListPanel'
 import ResizeHandle from './ResizeHandle.vue'
+import type { OpenMarkdownFile } from '../utils/openMarkdownFiles'
 
 const panel = useNoteListPanel()
 
 const props = defineProps<{
   notes: Note[]
+  externalFiles: OpenMarkdownFile[]
   selectedId: string | null
 }>()
 
 defineEmits<{
   select: [id: string]
+  close: [id: string, kind: 'note' | 'file']
   create: []
 }>()
 
-const sortedNotes = computed(() => {
-  return [...props.notes].sort((a, b) => {
+interface DocumentListItem {
+  id: string
+  kind: 'note' | 'file'
+  title: string
+  content: string
+  updatedAt: string
+}
+
+const documents = computed<DocumentListItem[]>(() => [
+  ...props.notes.map((note) => ({
+    id: note.id,
+    kind: 'note' as const,
+    title: note.title,
+    content: note.content,
+    updatedAt: note.updatedAt,
+  })),
+  ...props.externalFiles.map((file) => ({
+    id: file.id,
+    kind: 'file' as const,
+    title: file.fileName,
+    content: file.content,
+    updatedAt: file.openedAt,
+  })),
+])
+
+const documentCount = computed(() => documents.value.length)
+
+const sortedDocuments = computed(() => {
+  return [...documents.value].sort((a, b) => {
     return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
   })
 })
@@ -334,12 +377,61 @@ function formatTime(isoStr: string): string {
 }
 
 .note-item-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
   font-size: 13px;
   font-weight: 600;
   color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.document-kind {
+  flex-shrink: 0;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(74, 158, 255, 0.12);
+  color: var(--color-primary);
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.note-title-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-item-close {
+  width: 20px;
+  height: 20px;
+  margin-left: 6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity var(--transition), color var(--transition), background-color var(--transition);
+}
+
+.note-item:hover .note-item-close,
+.note-item--active .note-item-close,
+.note-item-close:focus-visible {
+  opacity: 1;
+}
+
+.note-item-close:hover {
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
 }
 
 .note-item-foot {

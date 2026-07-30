@@ -189,10 +189,18 @@ const selectedImageWidth = computed(() => {
 watch(
   () => props.note,
   (newNote, oldNote) => {
+    if (!newNote) {
+      editTitle.value = ''
+      editContent.value = ''
+      isDirty.value = false
+      selectedImageIndex.value = null
+      return
+    }
+
     // Only reset when the user actually switches to a different note.
     // Prevents accidental overwrites when the parent updates the note object
     // in-place (e.g. after saving).
-    if (newNote && newNote.id !== oldNote?.id) {
+    if (newNote.id !== oldNote?.id) {
       editTitle.value = newNote.title
       editContent.value = newNote.content
       isDirty.value = false
