@@ -105,7 +105,8 @@
 
     <!-- Full-width preview: reading mode -->
     <div v-else class="editor-body editor-body--preview">
-      <div class="content-preview content-preview--full" v-html="renderedMarkdown" @click="handlePreviewClick"></div>
+      <div ref="previewRef" class="content-preview content-preview--full" v-html="renderedMarkdown"
+        @click="handlePreviewClick"></div>
     </div>
   </div>
 
@@ -170,6 +171,11 @@ const scrollSync = useScrollSync({
   enabled: syncEnabled,
 })
 let pendingSave: Promise<boolean> | null = null
+let editorSelection: {
+  start: number
+  end: number
+  direction: 'forward' | 'backward' | 'none'
+} | null = null
 
 const renderedMarkdown = computed(() => {
   const raw = md.render(editContent.value || '', {
@@ -206,6 +212,7 @@ watch(
       isDirty.value = false
       isEditing.value = props.startInEditMode ?? false
       selectedImageIndex.value = null
+      editorSelection = null
       if (props.startInEditMode) {
         nextTick(() => textareaRef.value?.focus())
       }
@@ -231,8 +238,39 @@ function handleEditorClick(event: MouseEvent): void {
   scrollSync.highlightPreviewBlock(line)
 }
 
-function toggleEditingMode(): void {
-  isEditing.value = !isEditing.value
+async function toggleEditingMode(): Promise<void> {
+  if (isEditing.value) {
+    const textarea = textareaRef.value
+    const position = scrollSync.captureEditorPosition()
+    if (textarea) {
+      editorSelection = {
+        start: textarea.selectionStart,
+        end: textarea.selectionEnd,
+        direction: textarea.selectionDirection,
+      }
+    }
+
+    isEditing.value = false
+    await nextTick()
+    scrollSync.restorePreviewPosition(position)
+    return
+  }
+
+  const position = scrollSync.capturePreviewPosition()
+  isEditing.value = true
+  await nextTick()
+  scrollSync.restoreEditorPosition(position)
+  scrollSync.restorePreviewPosition(position)
+
+  const textarea = textareaRef.value
+  if (textarea && editorSelection) {
+    const contentLength = textarea.value.length
+    textarea.setSelectionRange(
+      Math.min(editorSelection.start, contentLength),
+      Math.min(editorSelection.end, contentLength),
+      editorSelection.direction,
+    )
+  }
 }
 
 function clearImageSelection(): void {

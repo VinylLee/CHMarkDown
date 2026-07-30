@@ -122,6 +122,147 @@ describe('useScrollSync', () => {
     })
   })
 
+  describe('mode switch position', () => {
+    it('captures the editor line at the viewport anchor', () => {
+      const ta = createTextarea(Array(100).fill('line').join('\n'), 0)
+      vi.spyOn(ta, 'scrollHeight', 'get').mockReturnValue(2500)
+      vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+        fontSize: '13.5px',
+        lineHeight: '25px',
+        paddingTop: '16px',
+      } as CSSStyleDeclaration)
+      ta.scrollTop = 500
+      textareaRef.value = ta
+
+      const { captureEditorPosition } = useScrollSync({ textareaRef, previewRef, enabled })
+      expect(captureEditorPosition()).toEqual({
+        line: 25,
+        ratio: 500 / 2100,
+        edge: null,
+      })
+    })
+
+    it('preserves the exact top and bottom boundaries', () => {
+      const ta = createTextarea(Array(100).fill('line').join('\n'), 0)
+      vi.spyOn(ta, 'scrollHeight', 'get').mockReturnValue(2500)
+      textareaRef.value = ta
+      const {
+        captureEditorPosition,
+        restoreEditorPosition,
+      } = useScrollSync({ textareaRef, previewRef, enabled })
+
+      ta.scrollTop = 0
+      const top = captureEditorPosition()
+      ta.scrollTop = 300
+      restoreEditorPosition(top)
+      expect(ta.scrollTop).toBe(0)
+
+      ta.scrollTop = 2100
+      const bottom = captureEditorPosition()
+      ta.scrollTop = 0
+      restoreEditorPosition(bottom)
+      expect(ta.scrollTop).toBe(2100)
+    })
+
+    it('captures the closest preview source line to the viewport anchor', () => {
+      const container = document.createElement('div')
+      vi.spyOn(container, 'clientHeight', 'get').mockReturnValue(600)
+      vi.spyOn(container, 'scrollHeight', 'get').mockReturnValue(1800)
+      vi.spyOn(container, 'getBoundingClientRect').mockReturnValue({
+        top: 100,
+        bottom: 700,
+      } as DOMRect)
+      container.scrollTop = 400
+
+      const first = document.createElement('p')
+      first.dataset.sourceLine = '10'
+      vi.spyOn(first, 'getBoundingClientRect').mockReturnValue({
+        top: 160,
+        bottom: 210,
+      } as DOMRect)
+      const second = document.createElement('p')
+      second.dataset.sourceLine = '20'
+      vi.spyOn(second, 'getBoundingClientRect').mockReturnValue({
+        top: 290,
+        bottom: 350,
+      } as DOMRect)
+      container.append(first, second)
+      previewRef.value = container
+
+      const { capturePreviewPosition } = useScrollSync({ textareaRef, previewRef, enabled })
+      expect(capturePreviewPosition()).toEqual({
+        line: 20,
+        ratio: 1 / 3,
+        edge: null,
+      })
+    })
+
+    it('prefers the nearest nested block inside a long container', () => {
+      const container = document.createElement('div')
+      vi.spyOn(container, 'clientHeight', 'get').mockReturnValue(600)
+      vi.spyOn(container, 'scrollHeight', 'get').mockReturnValue(1800)
+      vi.spyOn(container, 'getBoundingClientRect').mockReturnValue({
+        top: 100,
+        bottom: 700,
+      } as DOMRect)
+      container.scrollTop = 400
+
+      const list = document.createElement('ul')
+      list.dataset.sourceLine = '10'
+      vi.spyOn(list, 'getBoundingClientRect').mockReturnValue({
+        top: 120,
+        bottom: 650,
+      } as DOMRect)
+      const item = document.createElement('li')
+      item.dataset.sourceLine = '24'
+      vi.spyOn(item, 'getBoundingClientRect').mockReturnValue({
+        top: 280,
+        bottom: 340,
+      } as DOMRect)
+      list.appendChild(item)
+      container.appendChild(list)
+      previewRef.value = container
+
+      const { capturePreviewPosition } = useScrollSync({ textareaRef, previewRef, enabled })
+      expect(capturePreviewPosition()?.line).toBe(24)
+    })
+
+    it('restores a preview line at the viewport anchor', () => {
+      const container = document.createElement('div')
+      vi.spyOn(container, 'clientHeight', 'get').mockReturnValue(600)
+      vi.spyOn(container, 'scrollHeight', 'get').mockReturnValue(2000)
+      vi.spyOn(container, 'getBoundingClientRect').mockReturnValue({
+        top: 100,
+        bottom: 700,
+      } as DOMRect)
+      container.scrollTop = 300
+
+      const target = document.createElement('p')
+      target.dataset.sourceLine = '20'
+      vi.spyOn(target, 'getBoundingClientRect').mockReturnValue({
+        top: 500,
+        bottom: 550,
+      } as DOMRect)
+      container.appendChild(target)
+      previewRef.value = container
+
+      const { restorePreviewPosition } = useScrollSync({ textareaRef, previewRef, enabled })
+      restorePreviewPosition({ line: 20, ratio: 0.5, edge: null })
+      expect(container.scrollTop).toBe(500)
+    })
+
+    it('falls back to scroll ratio when the preview line is unavailable', () => {
+      const container = document.createElement('div')
+      vi.spyOn(container, 'clientHeight', 'get').mockReturnValue(400)
+      vi.spyOn(container, 'scrollHeight', 'get').mockReturnValue(1400)
+      previewRef.value = container
+
+      const { restorePreviewPosition } = useScrollSync({ textareaRef, previewRef, enabled })
+      restorePreviewPosition({ line: null, ratio: 0.4, edge: null })
+      expect(container.scrollTop).toBe(400)
+    })
+  })
+
   describe('highlightEditorLine', () => {
     it('selects text for the target line', () => {
       const ta = createTextarea('line1\nline2\nline3', 0)
