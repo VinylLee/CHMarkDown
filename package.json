@@ -1,13 +1,19 @@
 {
   "name": "chmarkdown",
   "productName": "CHMarkDown",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Windows 本地 Markdown 编辑与笔记工具",
   "main": "dist-electron/main.js",
   "build": {
     "appId": "com.chmarkdown.desktop",
     "productName": "CHMarkDown",
+    "artifactName": "CHMarkDown-${version}-${os}-${arch}.${ext}",
     "asar": true,
+    "compression": "store",
+    "electronLanguages": [
+      "zh-CN",
+      "en-US"
+    ],
     "directories": {
       "output": "release"
     },
@@ -39,6 +45,7 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "package:portable": "npm run build && electron-builder --win portable --x64",
+    "package:zip": "npm run build && electron-builder --win zip --x64 --config.compression=maximum",
     "preview": "vite preview",
     "test": "vitest run",
     "version:patch": "npm version patch --no-git-tag-version && git add package.json && git commit -m \"chore: bump version\"",

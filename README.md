@@ -49,9 +49,23 @@ npm run build
 
 ```bash
 npm run package:portable
+npm run package:zip
 ```
 
 产物输出到 `release/`。
+
+同一个版本提供两种 Windows x64 发行包：
+
+- `portable-x64.exe`：单文件快速便携版。应用文件不进行二次压缩，优先减少每次启动时的自解压等待。
+- `win-x64.zip`：轻量下载版。下载体积较小，完整解压一次后运行其中的 `CHMarkDown.exe`。
+
+两种发行包都包含 Electron 运行时，不依赖电脑预装 Edge、Chrome、WebView2 或
+Node.js，并且只保留简体中文和英文 Electron 语言资源。ZIP 版减少的是下载体积，
+解压后的磁盘占用不会明显减少；不要直接在压缩包内运行程序。
+
+在同一台测试设备上，v0.2.1 的 5 次启动中位时间为 1.023 秒，v0.2.0 为
+3.689 秒，改善约 72.3%。v0.2.1 的 ZIP 为 96.1 MiB，相比 241.2 MiB 的
+快速便携 EXE 减少约 60.2%。
 
 ## 数据位置
 

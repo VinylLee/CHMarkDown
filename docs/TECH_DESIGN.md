@@ -105,3 +105,31 @@ npm run build
 
 Windows 开发窗口和打包产物统一使用 `resources/chmarkdown.ico`。高分辨率源图保存在
 `resources/chmarkdown.png`，便于后续继续调整图标。
+
+## 9. Windows 发行包与启动性能
+
+- v0.2.0 使用 NSIS 压缩应用文件，每次启动都需要先解压到临时目录
+- v0.2.1 将 electron-builder 的 `compression` 设置为 `store`
+- 继续使用单文件 portable 形式，但避免启动时的解压缩 CPU 开销
+- 通过 `electronLanguages` 只保留 `zh-CN` 和 `en-US`，减少无关语言资源
+- 该方案以更大的本地 EXE 体积换取更快的启动速度，不改变运行时功能
+- v0.2.1 同时增加 Windows x64 ZIP 目标，打包时单独将 `compression` 覆盖为
+  `maximum`，降低下载体积
+- ZIP 版完整解压后直接启动 `CHMarkDown.exe`，不产生 portable 每次启动前的
+  自解压等待
+- portable 与 ZIP 都携带版本匹配的 Chromium 和 Node.js，不复用或依赖系统中的
+  Edge、Chrome、WebView2 或 Node.js
+- ZIP 只降低传输体积，不降低解压后的运行目录体积
+- 性能测试从启动 portable EXE 开始，到主窗口标题 `CHMarkDown` 出现为止
+- 所有对比数据必须在同一设备、相同代码和相同测量脚本下取得
+
+v0.2.1 实测数据：
+
+| 版本 | 5 次启动时间（秒） | 中位时间 | 相对改善 |
+|------|--------------------|----------|----------|
+| v0.2.0 | 3.666、3.648、3.689、3.846、3.860 | 3.689 秒 | 基线 |
+| v0.2.1 | 2.843、1.023、1.093、1.021、0.872 | 1.023 秒 | 72.3% |
+
+最终 v0.2.1 portable 文件大小为 241.2 MiB。体积增加是取消二次压缩的明确
+取舍；轻量下载 ZIP 使用最高压缩级别后为 96.1 MiB，比 portable 小 60.2%。
+应用功能、ASAR 封装、窗口图标和 Electron 安全配置保持不变。
