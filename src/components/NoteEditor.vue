@@ -21,6 +21,18 @@
           {{ isEditing ? '预览模式' : '编辑' }}
         </button>
 
+        <button class="btn-tool" :class="{ 'btn-tool--active': searchOpen && !replaceVisible }" @click="openSearch(false)" title="查找当前文档 (Ctrl+F)">
+          查找
+        </button>
+
+        <button class="btn-tool" :class="{ 'btn-tool--active': searchOpen && replaceVisible }" @click="openSearch(true)" title="查找并替换 (Ctrl+H)">
+          替换
+        </button>
+
+        <button class="btn-tool" :class="{ 'btn-tool--active': outlineOpen }" @click="outlineOpen = !outlineOpen" title="显示或隐藏文档大纲">
+          大纲
+        </button>
+
         <span class="toolbar-sep"></span>
 
         <button class="btn-tool" @click="handleInsertImage" :disabled="Boolean(documentPath)"
@@ -74,13 +86,36 @@
       </div>
     </div>
 
+    <DocumentSearchPanel
+      v-if="searchOpen"
+      ref="searchPanelRef"
+      :query="searchQuery"
+      :replacement="replacementText"
+      :match-count="searchMatches.length"
+      :current-match="currentMatchNumber"
+      :case-sensitive="caseSensitive"
+      :whole-word="wholeWord"
+      :replace-visible="replaceVisible"
+      :message="replaceMessage"
+      @update:query="searchQuery = $event"
+      @update:replacement="replacementText = $event"
+      @update:case-sensitive="caseSensitive = $event"
+      @update:whole-word="wholeWord = $event"
+      @previous="navigateSearch(-1)"
+      @next="navigateSearch(1)"
+      @replace="handleReplaceCurrent"
+      @replace-all="handleReplaceAll"
+      @close="closeSearch"
+    />
+
     <Transition name="image-tools">
       <ImageSizeControl v-if="selectedImageIndex !== null" :model-value="selectedImageWidth"
         @update:model-value="handleImageWidthChange" @close="clearImageSelection" />
     </Transition>
 
-    <!-- Split view: editing mode -->
-    <div v-if="isEditing" class="editor-body editor-body--split">
+    <div class="editor-workspace">
+      <!-- Split view: editing mode -->
+      <div v-if="isEditing" class="editor-body editor-body--split">
       <div class="editor-pane editor-pane--edit">
         <div class="pane-label pane-label--preview">
           <span>Markdown</span>
@@ -101,12 +136,15 @@
         </div>
         <div ref="previewRef" class="content-preview" v-html="renderedMarkdown" @click="handlePreviewClick"></div>
       </div>
-    </div>
+      </div>
 
-    <!-- Full-width preview: reading mode -->
-    <div v-else class="editor-body editor-body--preview">
-      <div ref="previewRef" class="content-preview content-preview--full" v-html="renderedMarkdown"
-        @click="handlePreviewClick"></div>
+      <!-- Full-width preview: reading mode -->
+      <div v-else class="editor-body editor-body--preview">
+        <div ref="previewRef" class="content-preview content-preview--full" v-html="renderedMarkdown"
+          @click="handlePreviewClick"></div>
+      </div>
+
+      <DocumentOutline v-if="outlineOpen" :headings="outlineHeadings" @navigate="navigateToHeading" />
     </div>
   </div>
 
@@ -125,6 +163,8 @@ import MarkdownIt from 'markdown-it'
 import DOMPurify from 'dompurify'
 import { useConfirm } from '../composables/useConfirm'
 import ImageSizeControl from './ImageSizeControl.vue'
+import DocumentSearchPanel from './DocumentSearchPanel.vue'
+import DocumentOutline from './DocumentOutline.vue'
 import {
   configureMarkdownImageSizing,
   createManagedImageHtml,
@@ -133,6 +173,12 @@ import {
 } from '../utils/markdownImageSize'
 import { configureMarkdownSourceMap, findSourceLine } from '../utils/markdownSourceMap'
 import { useScrollSync } from '../composables/useScrollSync'
+import {
+  findTextMatches,
+  replaceAllTextMatches,
+  replaceTextMatch,
+} from '../utils/documentSearch'
+import { extractMarkdownHeadings } from '../utils/markdownOutline'
 
 const md = new MarkdownIt({
   html: false,
@@ -164,6 +210,17 @@ const selectedImageIndex = ref<number | null>(null)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const previewRef = ref<HTMLElement | null>(null)
 const syncEnabled = ref(true)
+const searchOpen = ref(false)
+const replaceVisible = ref(false)
+const outlineOpen = ref(false)
+const searchQuery = ref('')
+const replacementText = ref('')
+const caseSensitive = ref(false)
+const wholeWord = ref(false)
+const currentMatchIndex = ref(0)
+const replaceMessage = ref('')
+const hasRevealedMatch = ref(false)
+const searchPanelRef = ref<InstanceType<typeof DocumentSearchPanel> | null>(null)
 const { requestConfirm } = useConfirm()
 const scrollSync = useScrollSync({
   textareaRef,
@@ -192,6 +249,18 @@ const selectedImageWidth = computed(() => {
   return findResizableMarkdownImages(editContent.value)[selectedImageIndex.value]?.width ?? null
 })
 
+const searchMatches = computed(() => findTextMatches(editContent.value, searchQuery.value, {
+  caseSensitive: caseSensitive.value,
+  wholeWord: wholeWord.value,
+}))
+
+const currentMatchNumber = computed(() => {
+  if (searchMatches.value.length === 0) return 0
+  return Math.min(currentMatchIndex.value, searchMatches.value.length - 1) + 1
+})
+
+const outlineHeadings = computed(() => extractMarkdownHeadings(editContent.value))
+
 watch(
   () => props.note,
   (newNote, oldNote) => {
@@ -213,6 +282,9 @@ watch(
       isEditing.value = props.startInEditMode ?? false
       selectedImageIndex.value = null
       editorSelection = null
+      currentMatchIndex.value = 0
+      hasRevealedMatch.value = false
+      replaceMessage.value = ''
       if (props.startInEditMode) {
         nextTick(() => textareaRef.value?.focus())
       }
@@ -221,6 +293,12 @@ watch(
   { immediate: true }
 )
 
+watch([searchQuery, caseSensitive, wholeWord], () => {
+  currentMatchIndex.value = 0
+  hasRevealedMatch.value = false
+  replaceMessage.value = ''
+})
+
 function markDirty(): void {
   isDirty.value = true
 }
@@ -228,6 +306,107 @@ function markDirty(): void {
 function handleContentInput(): void {
   markDirty()
   clearImageSelection()
+  hasRevealedMatch.value = false
+}
+
+function normalizedMatchIndex(): number {
+  const count = searchMatches.value.length
+  if (count === 0) return 0
+  return ((currentMatchIndex.value % count) + count) % count
+}
+
+async function revealSearchMatch(index: number): Promise<void> {
+  const matches = searchMatches.value
+  if (matches.length === 0) return
+  const normalized = ((index % matches.length) + matches.length) % matches.length
+  currentMatchIndex.value = normalized
+  hasRevealedMatch.value = true
+  const match = matches[normalized]
+
+  if (!isEditing.value) {
+    isEditing.value = true
+    await nextTick()
+  }
+
+  const textarea = textareaRef.value
+  if (!textarea) return
+  const line = editContent.value.slice(0, match.start).split('\n').length
+  textarea.setSelectionRange(match.start, match.end)
+  textarea.focus()
+  scrollSync.scrollEditorToLine(line)
+  scrollSync.scrollPreviewToLine(line)
+  scrollSync.highlightPreviewBlock(line)
+}
+
+function navigateSearch(direction: -1 | 1): void {
+  if (searchMatches.value.length === 0) return
+  if (!hasRevealedMatch.value) {
+    void revealSearchMatch(direction === 1 ? normalizedMatchIndex() : -1)
+    return
+  }
+  void revealSearchMatch(normalizedMatchIndex() + direction)
+}
+
+async function openSearch(showReplace: boolean): Promise<void> {
+  searchOpen.value = true
+  replaceVisible.value = showReplace
+  replaceMessage.value = ''
+  await nextTick()
+  searchPanelRef.value?.focus()
+}
+
+function closeSearch(): void {
+  searchOpen.value = false
+  replaceMessage.value = ''
+  hasRevealedMatch.value = false
+  textareaRef.value?.focus()
+}
+
+async function handleReplaceCurrent(): Promise<void> {
+  const matches = searchMatches.value
+  if (matches.length === 0) return
+  const index = normalizedMatchIndex()
+  const match = matches[index]
+  editContent.value = replaceTextMatch(editContent.value, match, replacementText.value)
+  markDirty()
+  clearImageSelection()
+  hasRevealedMatch.value = false
+  replaceMessage.value = '已替换 1 处'
+
+  await nextTick()
+  const nextMatches = searchMatches.value
+  if (nextMatches.length === 0) {
+    currentMatchIndex.value = 0
+    return
+  }
+  const nextPosition = match.start + replacementText.value.length
+  const nextIndex = nextMatches.findIndex((candidate) => candidate.start >= nextPosition)
+  await revealSearchMatch(nextIndex >= 0 ? nextIndex : 0)
+}
+
+async function handleReplaceAll(): Promise<void> {
+  const matches = searchMatches.value
+  if (matches.length === 0) return
+  editContent.value = replaceAllTextMatches(editContent.value, matches, replacementText.value)
+  markDirty()
+  clearImageSelection()
+  hasRevealedMatch.value = false
+  currentMatchIndex.value = 0
+  replaceMessage.value = `已替换 ${matches.length} 处`
+  await nextTick()
+  if (searchMatches.value.length > 0) {
+    await revealSearchMatch(0)
+  }
+}
+
+function navigateToHeading(line: number): void {
+  clearImageSelection()
+  if (isEditing.value) {
+    scrollSync.scrollEditorToLine(line)
+    scrollSync.highlightEditorLine(line)
+  }
+  scrollSync.scrollPreviewToLine(line)
+  scrollSync.highlightPreviewBlock(line)
 }
 
 function handleEditorClick(event: MouseEvent): void {
@@ -412,6 +591,20 @@ async function handlePaste(e: ClipboardEvent): Promise<void> {
 }
 
 function handleKeydown(e: KeyboardEvent): void {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+    e.preventDefault()
+    void openSearch(false)
+    return
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'h') {
+    e.preventDefault()
+    void openSearch(true)
+    return
+  }
+  if (e.key === 'Escape' && searchOpen.value) {
+    closeSearch()
+    return
+  }
   if (e.key === 'Escape' && selectedImageIndex.value !== null) {
     clearImageSelection()
     return
@@ -547,6 +740,8 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .btn-tool {
@@ -621,6 +816,14 @@ onUnmounted(() => {
 }
 
 /* ── Body ── */
+
+.editor-workspace {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  overflow: hidden;
+}
 
 .editor-body {
   flex: 1;
