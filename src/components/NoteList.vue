@@ -9,7 +9,7 @@
       v-if="panel.state.collapsed"
       class="notelist-expand-btn"
       @click="panel.expand()"
-      title="展开笔记列表 (Ctrl+Shift+B)"
+      title="展开笔记列表 (Ctrl+B)"
       aria-label="展开笔记列表"
     >
       <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -22,12 +22,12 @@
       <div class="panel-header">
         <span class="panel-title">文档列表</span>
         <div class="panel-header-actions">
-          <span class="notelist-shortcut">Ctrl+Shift+B</span>
+          <span class="notelist-shortcut">Ctrl+B</span>
           <span class="panel-count" v-if="documentCount > 0">{{ documentCount }}</span>
           <button
             class="notelist-collapse-btn"
             @click="panel.collapse()"
-            title="折叠笔记列表 (Ctrl+Shift+B)"
+            title="折叠笔记列表 (Ctrl+B)"
             aria-label="折叠笔记列表"
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">

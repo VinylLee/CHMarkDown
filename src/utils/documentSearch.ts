@@ -8,6 +8,11 @@ export interface TextMatch {
   end: number
 }
 
+export interface TextSelection {
+  start: number
+  end: number
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
@@ -67,4 +72,56 @@ export function replaceAllTextMatches(
     result = replaceTextMatch(result, matches[index], replacement)
   }
   return result
+}
+
+export function findAdjacentMatchIndex(
+  matches: TextMatch[],
+  selection: TextSelection,
+  direction: -1 | 1,
+): number {
+  if (matches.length === 0) return -1
+
+  if (direction === 1) {
+    const anchor = selection.start === selection.end ? selection.start : selection.end
+    const nextIndex = matches.findIndex((match) => match.start >= anchor)
+    return nextIndex >= 0 ? nextIndex : 0
+  }
+
+  const anchor = selection.start
+  for (let index = matches.length - 1; index >= 0; index -= 1) {
+    if (matches[index].end <= anchor) return index
+  }
+  return matches.length - 1
+}
+
+export function getSelectedSearchQuery(
+  content: string,
+  selection: TextSelection,
+): string | null {
+  const start = Math.max(0, Math.min(selection.start, content.length))
+  const end = Math.max(start, Math.min(selection.end, content.length))
+  return end > start ? content.slice(start, end) : null
+}
+
+export function getContainedSelectionText(
+  container: HTMLElement,
+  selection: Selection | null,
+): string | null {
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null
+
+  const range = selection.getRangeAt(0)
+  const commonAncestor = range.commonAncestorContainer
+  if (commonAncestor !== container && !container.contains(commonAncestor)) return null
+
+  const selectedText = selection.toString()
+  return selectedText.length > 0 ? selectedText : null
+}
+
+export function findSelectedMatchIndex(
+  matches: TextMatch[],
+  selection: TextSelection,
+): number {
+  return matches.findIndex(
+    (match) => match.start === selection.start && match.end === selection.end,
+  )
 }

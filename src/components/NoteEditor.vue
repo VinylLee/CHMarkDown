@@ -25,7 +25,7 @@
           查找
         </button>
 
-        <button class="btn-tool" :class="{ 'btn-tool--active': searchOpen && replaceVisible }" @click="openSearch(true)" title="查找并替换 (Ctrl+H)">
+        <button class="btn-tool" :class="{ 'btn-tool--active': searchOpen && replaceVisible }" @click="openSearch(true)" title="查找并替换 (Ctrl+R)">
           替换
         </button>
 
@@ -174,11 +174,16 @@ import {
 import { configureMarkdownSourceMap, findSourceLine } from '../utils/markdownSourceMap'
 import { useScrollSync } from '../composables/useScrollSync'
 import {
+  findAdjacentMatchIndex,
+  findSelectedMatchIndex,
   findTextMatches,
+  getContainedSelectionText,
+  getSelectedSearchQuery,
   replaceAllTextMatches,
   replaceTextMatch,
 } from '../utils/documentSearch'
 import { extractMarkdownHeadings } from '../utils/markdownOutline'
+import { resolveEditorShortcut } from '../utils/keyboardShortcut'
 
 const md = new MarkdownIt({
   html: false,
@@ -219,7 +224,6 @@ const caseSensitive = ref(false)
 const wholeWord = ref(false)
 const currentMatchIndex = ref(0)
 const replaceMessage = ref('')
-const hasRevealedMatch = ref(false)
 const searchPanelRef = ref<InstanceType<typeof DocumentSearchPanel> | null>(null)
 const { requestConfirm } = useConfirm()
 const scrollSync = useScrollSync({
@@ -233,6 +237,11 @@ let editorSelection: {
   end: number
   direction: 'forward' | 'backward' | 'none'
 } | null = null
+
+interface DocumentSearchSelection {
+  query: string
+  editorRange: { start: number; end: number } | null
+}
 
 const renderedMarkdown = computed(() => {
   const raw = md.render(editContent.value || '', {
@@ -283,7 +292,6 @@ watch(
       selectedImageIndex.value = null
       editorSelection = null
       currentMatchIndex.value = 0
-      hasRevealedMatch.value = false
       replaceMessage.value = ''
       if (props.startInEditMode) {
         nextTick(() => textareaRef.value?.focus())
@@ -295,7 +303,6 @@ watch(
 
 watch([searchQuery, caseSensitive, wholeWord], () => {
   currentMatchIndex.value = 0
-  hasRevealedMatch.value = false
   replaceMessage.value = ''
 })
 
@@ -306,7 +313,6 @@ function markDirty(): void {
 function handleContentInput(): void {
   markDirty()
   clearImageSelection()
-  hasRevealedMatch.value = false
 }
 
 function normalizedMatchIndex(): number {
@@ -320,7 +326,6 @@ async function revealSearchMatch(index: number): Promise<void> {
   if (matches.length === 0) return
   const normalized = ((index % matches.length) + matches.length) % matches.length
   currentMatchIndex.value = normalized
-  hasRevealedMatch.value = true
   const match = matches[normalized]
 
   if (!isEditing.value) {
@@ -339,12 +344,18 @@ async function revealSearchMatch(index: number): Promise<void> {
 }
 
 function navigateSearch(direction: -1 | 1): void {
-  if (searchMatches.value.length === 0) return
-  if (!hasRevealedMatch.value) {
-    void revealSearchMatch(direction === 1 ? normalizedMatchIndex() : -1)
-    return
-  }
-  void revealSearchMatch(normalizedMatchIndex() + direction)
+  const matches = searchMatches.value
+  if (matches.length === 0) return
+  const textarea = textareaRef.value
+  const savedSelection = editorSelection
+  const fallback = direction === 1 ? 0 : editContent.value.length
+  const selection = textarea
+    ? { start: textarea.selectionStart, end: textarea.selectionEnd }
+    : savedSelection
+      ? { start: savedSelection.start, end: savedSelection.end }
+      : { start: fallback, end: fallback }
+  const index = findAdjacentMatchIndex(matches, selection, direction)
+  if (index >= 0) void revealSearchMatch(index)
 }
 
 async function openSearch(showReplace: boolean): Promise<void> {
@@ -355,10 +366,66 @@ async function openSearch(showReplace: boolean): Promise<void> {
   searchPanelRef.value?.focus()
 }
 
+function getCurrentDocumentSearchSelection(): DocumentSearchSelection | null {
+  const preview = previewRef.value
+  const browserSelection = window.getSelection()
+  if (preview) {
+    const previewQuery = getContainedSelectionText(preview, browserSelection)
+    if (previewQuery !== null) {
+      browserSelection?.removeAllRanges()
+      return { query: previewQuery, editorRange: null }
+    }
+  }
+
+  const textarea = textareaRef.value
+  if (!textarea || document.activeElement !== textarea) return null
+
+  const editorRange = {
+    start: textarea.selectionStart,
+    end: textarea.selectionEnd,
+  }
+  const query = getSelectedSearchQuery(editContent.value, editorRange)
+  return query === null ? null : { query, editorRange }
+}
+
+async function openSearchFromSelection(
+  showReplace: boolean,
+  selection: DocumentSearchSelection,
+): Promise<void> {
+  searchQuery.value = selection.query
+  currentMatchIndex.value = 0
+  await openSearch(showReplace)
+
+  if (selection.editorRange) {
+    const selectedIndex = findSelectedMatchIndex(searchMatches.value, selection.editorRange)
+    if (selectedIndex >= 0) currentMatchIndex.value = selectedIndex
+  }
+}
+
+async function handleSearchShortcut(
+  shortcutAction: Exclude<ReturnType<typeof resolveEditorShortcut>, null>,
+  selection: DocumentSearchSelection | null,
+): Promise<void> {
+  if (!isEditing.value) await toggleEditingMode()
+
+  if (selection) {
+    await openSearchFromSelection(
+      shortcutAction === 'open-replace' || replaceVisible.value,
+      selection,
+    )
+    return
+  }
+
+  if (shortcutAction === 'close-search') {
+    closeSearch()
+  } else {
+    await openSearch(shortcutAction === 'open-replace')
+  }
+}
+
 function closeSearch(): void {
   searchOpen.value = false
   replaceMessage.value = ''
-  hasRevealedMatch.value = false
   textareaRef.value?.focus()
 }
 
@@ -370,7 +437,6 @@ async function handleReplaceCurrent(): Promise<void> {
   editContent.value = replaceTextMatch(editContent.value, match, replacementText.value)
   markDirty()
   clearImageSelection()
-  hasRevealedMatch.value = false
   replaceMessage.value = '已替换 1 处'
 
   await nextTick()
@@ -390,7 +456,6 @@ async function handleReplaceAll(): Promise<void> {
   editContent.value = replaceAllTextMatches(editContent.value, matches, replacementText.value)
   markDirty()
   clearImageSelection()
-  hasRevealedMatch.value = false
   currentMatchIndex.value = 0
   replaceMessage.value = `已替换 ${matches.length} 处`
   await nextTick()
@@ -591,14 +656,15 @@ async function handlePaste(e: ClipboardEvent): Promise<void> {
 }
 
 function handleKeydown(e: KeyboardEvent): void {
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+  const shortcutAction = resolveEditorShortcut(
+    e,
+    searchOpen.value,
+    replaceVisible.value,
+  )
+  if (shortcutAction) {
     e.preventDefault()
-    void openSearch(false)
-    return
-  }
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'h') {
-    e.preventDefault()
-    void openSearch(true)
+    const selection = getCurrentDocumentSearchSelection()
+    void handleSearchShortcut(shortcutAction, selection)
     return
   }
   if (e.key === 'Escape' && searchOpen.value) {

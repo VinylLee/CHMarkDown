@@ -14,6 +14,7 @@ import ConfirmDialog from './components/ConfirmDialog.vue'
 import { useToast } from './composables/useToast'
 import { useNoteListPanel } from './composables/useNoteListPanel'
 import { runAppCloseGuard } from './composables/useAppCloseGuard'
+import { isNoteListToggleShortcut } from './utils/keyboardShortcut'
 
 const { toasts, show } = useToast()
 const noteListPanel = useNoteListPanel()
@@ -21,8 +22,8 @@ let removeCloseListener: (() => void) | null = null
 let removeKeyListener: (() => void) | null = null
 
 function handleGlobalKeydown(event: KeyboardEvent): void {
-  // Ctrl+Shift+B or Cmd+Shift+B: toggle the note list.
-  if ((event.ctrlKey || event.metaKey) && event.key === 'B' && event.shiftKey) {
+  // Ctrl+B or Cmd+B: toggle the note list.
+  if (isNoteListToggleShortcut(event)) {
     event.preventDefault()
     noteListPanel.toggle()
   }
