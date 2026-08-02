@@ -17,6 +17,13 @@ import {
   readMarkdownFile,
   writeMarkdownFile,
 } from './services/markdownFileService'
+import {
+  addRecentFile,
+  clearRecentFiles,
+  readRecentFiles,
+  removeRecentFile,
+} from './services/recentFileService'
+import { extractMarkdownFilePath } from './fileOpenRequest'
 import { hasManagedImages } from '../src/utils/markdownImageSize'
 
 const APP_NAME = 'CHMarkDown'
@@ -30,6 +37,36 @@ if (process.platform === 'win32') {
 let mainWindow: BrowserWindow | null = null
 let mainWindowCloseCoordinator: ReturnType<typeof createWindowCloseCoordinator> | null = null
 let rendererReady = false
+const pendingOpenPaths: string[] = []
+
+function getRecentFilesPath(): string {
+  return path.join(app.getPath('userData'), 'recent-files.json')
+}
+
+function focusMainWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+function sendOpenFileRequest(filePath: string): void {
+  if (!rendererReady || !mainWindow || mainWindow.isDestroyed()) {
+    if (!pendingOpenPaths.some((item) => item.toLowerCase() === filePath.toLowerCase())) {
+      pendingOpenPaths.push(filePath)
+    }
+    return
+  }
+  mainWindow.webContents.send('app:open-file-requested', filePath)
+}
+
+function flushPendingOpenPaths(): void {
+  if (!rendererReady || !mainWindow || mainWindow.isDestroyed()) return
+  while (pendingOpenPaths.length > 0) {
+    const filePath = pendingOpenPaths.shift()
+    if (filePath) mainWindow.webContents.send('app:open-file-requested', filePath)
+  }
+}
 
 function requestMainWindowClose(): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -151,6 +188,7 @@ function registerIpcHandlers(): void {
   ipcMain.on('app:renderer-ready', (event) => {
     if (mainWindow && event.sender === mainWindow.webContents) {
       rendererReady = true
+      flushPendingOpenPaths()
     }
   })
 
@@ -181,6 +219,26 @@ function registerIpcHandlers(): void {
     return readMarkdownFile(result.filePaths[0])
   })
 
+  ipcMain.handle('files:openMarkdownPath', (_event, filePath: string) => {
+    return readMarkdownFile(path.resolve(filePath))
+  })
+
+  ipcMain.handle('files:getRecent', () => {
+    return readRecentFiles(getRecentFilesPath())
+  })
+
+  ipcMain.handle('files:addRecent', (_event, filePath: string) => {
+    return addRecentFile(getRecentFilesPath(), filePath)
+  })
+
+  ipcMain.handle('files:removeRecent', (_event, filePath: string) => {
+    return removeRecentFile(getRecentFilesPath(), filePath)
+  })
+
+  ipcMain.handle('files:clearRecent', () => {
+    clearRecentFiles(getRecentFilesPath())
+  })
+
   ipcMain.handle('files:saveMarkdown', (_event, filePath: string, content: string) => {
     return writeMarkdownFile(filePath, content)
   })
@@ -199,7 +257,7 @@ function registerIpcHandlers(): void {
       if (result.canceled || !result.filePath) {
         return null
       }
-      return writeMarkdownFile(result.filePath, content)
+      return writeMarkdownFile(path.resolve(result.filePath), content)
     }
   )
 
@@ -324,18 +382,40 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(() => {
-  registerProtocol()
-  registerIpcHandlers()
-  installApplicationMenu()
-  createWindow()
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
-    }
+if (!hasSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', (_event, argv) => {
+    focusMainWindow()
+    const filePath = extractMarkdownFilePath(argv)
+    if (filePath) sendOpenFileRequest(filePath)
   })
-})
+
+  app.on('open-file', (event, filePath) => {
+    event.preventDefault()
+    sendOpenFileRequest(path.resolve(filePath))
+  })
+
+  app.whenReady().then(() => {
+    registerProtocol()
+    registerIpcHandlers()
+    installApplicationMenu()
+    createWindow()
+
+    const initialFilePath = extractMarkdownFilePath(process.argv)
+    if (initialFilePath) {
+      sendOpenFileRequest(initialFilePath)
+    }
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow()
+      }
+    })
+  })
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

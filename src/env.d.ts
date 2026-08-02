@@ -23,6 +23,12 @@ interface MarkdownFileDocument {
   content: string
 }
 
+interface RecentFile {
+  filePath: string
+  fileName: string
+  lastOpenedAt: string
+}
+
 interface Window {
   electronAPI: {
     app: {
@@ -30,9 +36,15 @@ interface Window {
       onCloseRequested: (callback: (requestId: number) => void) => () => void
       respondToClose: (requestId: number, allowClose: boolean) => void
       onFileCommand: (callback: (command: FileCommand) => void) => () => void
+      onOpenFileRequested: (callback: (filePath: string) => void) => () => void
     }
     files: {
       openMarkdown: () => Promise<MarkdownFileDocument | null>
+      openMarkdownPath: (filePath: string) => Promise<MarkdownFileDocument>
+      getRecent: () => Promise<RecentFile[]>
+      addRecent: (filePath: string) => Promise<RecentFile[]>
+      removeRecent: (filePath: string) => Promise<RecentFile[]>
+      clearRecent: () => Promise<void>
       saveMarkdown: (filePath: string, content: string) => Promise<MarkdownFileDocument>
       saveMarkdownAs: (
         suggestedName: string,

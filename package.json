@@ -1,7 +1,7 @@
 {
   "name": "chmarkdown",
   "productName": "CHMarkDown",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Windows 本地 Markdown 编辑与笔记工具",
   "main": "dist-electron/main.js",
   "build": {
@@ -26,6 +26,17 @@
       "icon": "resources/chmarkdown.ico",
       "signAndEditExecutable": false
     },
+    "fileAssociations": [
+      {
+        "ext": [
+          "md",
+          "markdown"
+        ],
+        "name": "Markdown Document",
+        "description": "Markdown 文档",
+        "role": "Editor"
+      }
+    ],
     "nsis": {
       "installerIcon": "resources/chmarkdown.ico"
     },

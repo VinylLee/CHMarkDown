@@ -17,6 +17,12 @@ export interface MarkdownFileDocument {
   content: string
 }
 
+export interface RecentFile {
+  filePath: string
+  fileName: string
+  lastOpenedAt: string
+}
+
 contextBridge.exposeInMainWorld('electronAPI', {
   app: {
     ready: (): void => {
@@ -35,10 +41,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('app:file-command', listener)
       return () => ipcRenderer.removeListener('app:file-command', listener)
     },
+    onOpenFileRequested: (callback: (filePath: string) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, filePath: string) => callback(filePath)
+      ipcRenderer.on('app:open-file-requested', listener)
+      return () => ipcRenderer.removeListener('app:open-file-requested', listener)
+    },
   },
   files: {
     openMarkdown: (): Promise<MarkdownFileDocument | null> =>
       ipcRenderer.invoke('files:openMarkdown'),
+    openMarkdownPath: (filePath: string): Promise<MarkdownFileDocument> =>
+      ipcRenderer.invoke('files:openMarkdownPath', filePath),
+    getRecent: (): Promise<RecentFile[]> => ipcRenderer.invoke('files:getRecent'),
+    addRecent: (filePath: string): Promise<RecentFile[]> =>
+      ipcRenderer.invoke('files:addRecent', filePath),
+    removeRecent: (filePath: string): Promise<RecentFile[]> =>
+      ipcRenderer.invoke('files:removeRecent', filePath),
+    clearRecent: (): Promise<void> => ipcRenderer.invoke('files:clearRecent'),
     saveMarkdown: (filePath: string, content: string): Promise<MarkdownFileDocument> =>
       ipcRenderer.invoke('files:saveMarkdown', filePath, content),
     saveMarkdownAs: (

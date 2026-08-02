@@ -43,6 +43,42 @@
         </svg>
         新建笔记
       </button>
+      <section class="recent-files" aria-label="最近文件">
+        <div class="recent-files-header">
+          <span>最近文件</span>
+          <button
+            v-if="recentFiles.length > 0"
+            class="recent-clear"
+            title="清除最近文件记录"
+            @click="$emit('clearRecent')"
+          >
+            清除
+          </button>
+        </div>
+        <p v-if="recentFiles.length === 0" class="recent-empty">暂无最近文件</p>
+        <div v-else class="recent-file-list">
+          <div
+            v-for="file in recentFiles"
+            :key="file.filePath.toLowerCase()"
+            class="recent-file-item"
+            :title="file.filePath"
+            @click="$emit('openRecent', file.filePath)"
+          >
+            <div class="recent-file-text">
+              <span class="recent-file-name">{{ file.fileName }}</span>
+              <span class="recent-file-path">{{ file.filePath }}</span>
+            </div>
+            <button
+              class="recent-file-remove"
+              :aria-label="`移除 ${file.fileName} 的最近记录`"
+              title="从最近文件中移除"
+              @click.stop="$emit('removeRecent', file.filePath)"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      </section>
       <div class="note-list">
         <div v-if="documentCount === 0" class="empty-hint">
           <div class="empty-icon">📝</div>
@@ -101,6 +137,7 @@ const panel = useNoteListPanel()
 const props = defineProps<{
   notes: Note[]
   externalFiles: OpenMarkdownFile[]
+  recentFiles: RecentFile[]
   selectedId: string | null
 }>()
 
@@ -108,6 +145,9 @@ defineEmits<{
   select: [id: string]
   close: [id: string, kind: 'note' | 'file']
   create: []
+  openRecent: [filePath: string]
+  removeRecent: [filePath: string]
+  clearRecent: []
 }>()
 
 interface DocumentListItem {
@@ -323,6 +363,108 @@ function formatTime(isoStr: string): string {
   border-color: var(--color-primary);
   color: var(--color-primary);
   background-color: rgba(74, 158, 255, 0.04);
+}
+
+.recent-files {
+  margin: 0 12px 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.recent-files-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px 5px;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+}
+
+.recent-clear {
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.recent-clear:hover {
+  color: var(--color-danger);
+}
+
+.recent-empty {
+  padding: 4px 2px 1px;
+  color: #b0b7c3;
+  font-size: 10px;
+}
+
+.recent-file-list {
+  max-height: 156px;
+  overflow-y: auto;
+}
+
+.recent-file-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 2px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.recent-file-item:hover {
+  background: #eef1f5;
+}
+
+.recent-file-text {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.recent-file-name,
+.recent-file-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-file-name {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.recent-file-path {
+  color: #b0b7c3;
+  font-size: 9px;
+}
+
+.recent-file-remove {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.recent-file-item:hover .recent-file-remove,
+.recent-file-remove:focus-visible {
+  opacity: 1;
+}
+
+.recent-file-remove:hover {
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
 }
 
 .note-list {

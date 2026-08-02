@@ -1,12 +1,22 @@
 <template>
-  <div class="notes-view">
+  <div
+    class="notes-view"
+    @dragenter.prevent="handleDragEnter"
+    @dragover.prevent="handleDragOver"
+    @dragleave.prevent="handleDragLeave"
+    @drop.prevent="handleDrop"
+  >
     <NoteList
       :notes="notes"
       :external-files="externalFiles"
+      :recent-files="recentFiles"
       :selectedId="selectedId"
       @select="trySelectDocument"
       @close="handleCloseListItem"
       @create="tryCreateNote"
+      @open-recent="queueOpenFilePath($event, 'recent')"
+      @remove-recent="handleRemoveRecent"
+      @clear-recent="handleClearRecent"
     />
     <NoteEditor
       ref="noteEditorRef"
@@ -16,6 +26,13 @@
       :save-note="handleSave"
       @delete="handleDelete"
     />
+    <div v-if="isDraggingFile" class="file-drop-overlay">
+      <div class="file-drop-card">
+        <span class="file-drop-icon">↓</span>
+        <strong>拖放以打开 Markdown 文件</strong>
+        <span>支持 .md 和 .markdown</span>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -28,6 +45,7 @@ import { useToast } from '../composables/useToast'
 import { useNoteListPanel } from '../composables/useNoteListPanel'
 import { resolveUnsavedChanges } from '../utils/resolveUnsavedChanges'
 import { registerAppCloseGuard } from '../composables/useAppCloseGuard'
+import { getDroppedMarkdownFilePath } from '../utils/droppedMarkdownFile'
 import {
   createOpenMarkdownFile,
   removeOpenMarkdownFile,
@@ -39,7 +57,9 @@ import type { OpenMarkdownFile } from '../utils/openMarkdownFiles'
 const notes = ref<Note[]>([])
 const selectedId = ref<string | null>(null)
 const externalFiles = ref<OpenMarkdownFile[]>([])
+const recentFiles = ref<RecentFile[]>([])
 const startInEditMode = ref(false)
+const isDraggingFile = ref(false)
 const loading = ref(true)
 const error = ref('')
 const { show } = useToast()
@@ -48,6 +68,9 @@ const noteListPanel = useNoteListPanel()
 const noteEditorRef = ref<InstanceType<typeof NoteEditor> | null>(null)
 let unregisterCloseGuard: (() => void) | null = null
 let removeFileCommandListener: (() => void) | null = null
+let removeOpenFileRequestListener: (() => void) | null = null
+let dragDepth = 0
+let openFileQueue = Promise.resolve()
 
 const selectedNote = computed(() => {
   if (!selectedId.value) return null
@@ -140,6 +163,24 @@ async function createNote(): Promise<Note | null> {
   }
 }
 
+async function loadRecentFiles(): Promise<void> {
+  try {
+    recentFiles.value = await window.electronAPI.files.getRecent()
+  } catch (err) {
+    show('读取最近文件记录失败。', 'error')
+    console.error('Failed to load recent files:', err)
+  }
+}
+
+async function recordRecentFile(filePath: string): Promise<void> {
+  try {
+    recentFiles.value = await window.electronAPI.files.addRecent(filePath)
+  } catch (err) {
+    show('文件已打开，但最近文件记录保存失败。', 'error')
+    console.error('Failed to record recent file:', err)
+  }
+}
+
 async function handleSave(data: { id: string; title: string; content: string }): Promise<boolean> {
   error.value = ''
   if (activeExternalFile.value) {
@@ -188,16 +229,110 @@ async function handleOpenFile(): Promise<void> {
     const openedFile = await window.electronAPI.files.openMarkdown()
     if (!openedFile) return
     if (!(await canLeaveCurrentNote())) return
-
-    startInEditMode.value = true
-    externalFiles.value = upsertOpenMarkdownFile(externalFiles.value, openedFile)
-    selectedId.value = createOpenMarkdownFile(openedFile).id
-    show(`已打开 ${openedFile.fileName}`)
+    await activateOpenedFile(openedFile)
   } catch (err) {
     error.value = '打开 Markdown 文件失败。'
     show(error.value, 'error')
     console.error('Failed to open Markdown file:', err)
   }
+}
+
+async function activateOpenedFile(openedFile: MarkdownFileDocument): Promise<void> {
+  startInEditMode.value = true
+  externalFiles.value = upsertOpenMarkdownFile(externalFiles.value, openedFile)
+  selectedId.value = createOpenMarkdownFile(openedFile).id
+  await recordRecentFile(openedFile.filePath)
+  show(`已打开 ${openedFile.fileName}`)
+}
+
+async function handleOpenFilePath(
+  filePath: string,
+  source: 'recent' | 'drop' | 'system',
+): Promise<void> {
+  if (!(await canLeaveCurrentNote())) return
+
+  try {
+    const openedFile = await window.electronAPI.files.openMarkdownPath(filePath)
+    await activateOpenedFile(openedFile)
+  } catch (err) {
+    const message = source === 'recent'
+      ? '无法打开最近文件，文件可能已移动或删除。可点击右侧 × 移除记录。'
+      : '无法打开该文件，请确认它存在且是 Markdown 文件。'
+    show(message, 'error')
+    console.error(`Failed to open Markdown file from ${source}:`, err)
+  }
+}
+
+function queueOpenFilePath(
+  filePath: string,
+  source: 'recent' | 'drop' | 'system',
+): void {
+  openFileQueue = openFileQueue
+    .then(() => handleOpenFilePath(filePath, source))
+    .catch((err) => {
+      show('处理文件打开请求失败。', 'error')
+      console.error('Failed to process queued file open request:', err)
+    })
+}
+
+async function handleRemoveRecent(filePath: string): Promise<void> {
+  try {
+    recentFiles.value = await window.electronAPI.files.removeRecent(filePath)
+    show('最近文件记录已移除')
+  } catch (err) {
+    show('移除最近文件记录失败。', 'error')
+    console.error('Failed to remove recent file:', err)
+  }
+}
+
+async function handleClearRecent(): Promise<void> {
+  try {
+    await window.electronAPI.files.clearRecent()
+    recentFiles.value = []
+    show('最近文件记录已清除')
+  } catch (err) {
+    show('清除最近文件记录失败。', 'error')
+    console.error('Failed to clear recent files:', err)
+  }
+}
+
+function isFileDrag(event: DragEvent): boolean {
+  return event.dataTransfer?.types.includes('Files') ?? false
+}
+
+function handleDragEnter(event: DragEvent): void {
+  if (!isFileDrag(event)) return
+  dragDepth += 1
+  isDraggingFile.value = true
+}
+
+function handleDragOver(event: DragEvent): void {
+  if (!isFileDrag(event)) return
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+  isDraggingFile.value = true
+}
+
+function handleDragLeave(): void {
+  if (!isDraggingFile.value) return
+  dragDepth = Math.max(0, dragDepth - 1)
+  if (dragDepth === 0) isDraggingFile.value = false
+}
+
+function handleDrop(event: DragEvent): void {
+  dragDepth = 0
+  isDraggingFile.value = false
+  const result = getDroppedMarkdownFilePath(
+    Array.from(event.dataTransfer?.files ?? []) as Array<File & { path?: string }>,
+  )
+  if (result.status === 'unsupported') {
+    show('仅支持拖入 .md 或 .markdown 文件。', 'error')
+    return
+  }
+  if (result.status === 'missing-path') {
+    show('无法取得拖入文件的本地路径。', 'error')
+    return
+  }
+  queueOpenFilePath(result.filePath, 'drop')
 }
 
 async function handleSaveAs(): Promise<void> {
@@ -223,6 +358,7 @@ async function handleSaveAs(): Promise<void> {
     )
     selectedId.value = createOpenMarkdownFile(savedFile).id
     startInEditMode.value = true
+    await recordRecentFile(savedFile.filePath)
     show(`已另存为 ${savedFile.fileName}`)
   } catch (err) {
     error.value = '另存 Markdown 文件失败。'
@@ -304,13 +440,17 @@ onMounted(() => {
   removeFileCommandListener = window.electronAPI.app.onFileCommand((command) => {
     void handleFileCommand(command)
   })
-  void loadNotes()
+  removeOpenFileRequestListener = window.electronAPI.app.onOpenFileRequested((filePath) => {
+    queueOpenFilePath(filePath, 'system')
+  })
+  void Promise.all([loadNotes(), loadRecentFiles()])
 })
 
 onUnmounted(() => {
   noteListPanel.deactivate()
   unregisterCloseGuard?.()
   removeFileCommandListener?.()
+  removeOpenFileRequestListener?.()
 })
 </script>
 
@@ -322,5 +462,45 @@ onUnmounted(() => {
   min-width: 0;
   background: var(--color-surface);
   overflow: hidden;
+  position: relative;
+}
+
+.file-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(243, 248, 255, 0.88);
+  border: 2px dashed var(--color-primary);
+  pointer-events: none;
+}
+
+.file-drop-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 28px 36px;
+  border-radius: var(--radius-lg);
+  background: #ffffff;
+  color: var(--color-text-secondary);
+  box-shadow: var(--shadow-md);
+}
+
+.file-drop-card strong {
+  color: var(--color-primary);
+  font-size: 16px;
+}
+
+.file-drop-card span:last-child {
+  font-size: 11px;
+}
+
+.file-drop-icon {
+  font-size: 30px;
+  line-height: 1;
+  color: var(--color-primary);
 }
 </style>

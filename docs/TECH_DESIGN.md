@@ -19,8 +19,10 @@ CHMarkDown/
 ├── electron/
 │   ├── main.ts
 │   ├── preload.ts
+│   ├── fileOpenRequest.ts
 │   ├── services/
 │   │   ├── markdownFileService.ts
+│   │   ├── recentFileService.ts
 │   │   └── noteService.ts
 │   └── windowCloseCoordinator.ts
 ├── src/
@@ -144,3 +146,16 @@ v0.2.1 实测数据：
 - 从纯预览返回分栏时，同时对齐编辑区和预览区
 - 切换前保存 textarea 的光标、选区和选区方向，返回编辑模式后恢复
 - 位置状态只服务于当前即时切换，不写入本地数据，也不跨应用重启保存
+
+## 11. 最近文件与外部打开入口
+
+- 最近文件记录由主进程维护在用户数据目录的 `recent-files.json`
+- 单条记录包含规范化绝对路径、文件名和最后打开时间，最多保存 12 条
+- Windows 路径比较忽略大小写；重复打开会更新时间并移动到列表顶部
+- 最近记录只在文件已成功读取且用户允许离开当前文档后更新
+- 拖放事件只从 Electron 提供的 `File.path` 取得路径，实际读取继续通过 preload 和 IPC
+- 主进程从首次启动参数和 `second-instance` 参数中筛选 `.md` / `.markdown` 路径
+- `requestSingleInstanceLock` 保证“打开方式”复用现有窗口；渲染进程未就绪时路径进入内存队列
+- 渲染进程串行处理菜单、最近文件、拖放和系统入口，共用未保存修改保护
+- 文件不存在、扩展名不支持、记录损坏或读写失败时显示用户可感知提示
+- portable 构建包含 Markdown 文件关联元数据，但不静默修改 Windows 默认应用设置
