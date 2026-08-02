@@ -23,6 +23,16 @@ export interface RecentFile {
   lastOpenedAt: string
 }
 
+export type SessionDocumentRef =
+  | { kind: 'note'; id: string }
+  | { kind: 'file'; filePath: string }
+
+export interface SessionState {
+  version: 1
+  documents: SessionDocumentRef[]
+  selected: SessionDocumentRef | null
+}
+
 contextBridge.exposeInMainWorld('electronAPI', {
   app: {
     ready: (): void => {
@@ -65,6 +75,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       content: string
     ): Promise<MarkdownFileDocument | null> =>
       ipcRenderer.invoke('files:saveMarkdownAs', suggestedName, content),
+  },
+  session: {
+    get: (): Promise<SessionState> => ipcRenderer.invoke('session:get'),
+    save: (state: SessionState): Promise<SessionState> =>
+      ipcRenderer.invoke('session:save', state),
   },
   notes: {
     getAll: (): Promise<Note[]> => ipcRenderer.invoke('notes:getAll'),

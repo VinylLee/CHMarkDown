@@ -9,6 +9,7 @@ CHMarkDown 是一个 Windows 本地 Markdown 编辑与笔记工具。内容和�
 - 最近文件列表、清除记录以及失效文件提示
 - 拖放 Markdown 文件到窗口直接打开
 - 支持命令行文件路径和 Windows“打开方式”入口
+- 重启后恢复上次打开的文档、列表顺序和当前选中项
 - 本地笔记与已打开的外部文件统一显示在左侧文档列表
 - 可从列表关闭外部文件；删除本地笔记前会进行确认
 - Markdown 实时预览
@@ -76,6 +77,8 @@ Node.js，并且只保留简体中文和英文 Electron 语言资源。ZIP 版�
 笔记保存在 Electron 的应用用户数据目录中：
 
 - `notes.json`
+- `recent-files.json`
+- `session.json`（仅记录打开状态，不保存未保存正文）
 - `images/`
 
 外部 Markdown 文件仅在用户执行保存或另存为时写入用户选择的位置。

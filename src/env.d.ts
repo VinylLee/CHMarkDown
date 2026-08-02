@@ -29,6 +29,16 @@ interface RecentFile {
   lastOpenedAt: string
 }
 
+type SessionDocumentRef =
+  | { kind: 'note'; id: string }
+  | { kind: 'file'; filePath: string }
+
+interface SessionState {
+  version: 1
+  documents: SessionDocumentRef[]
+  selected: SessionDocumentRef | null
+}
+
 interface Window {
   electronAPI: {
     app: {
@@ -50,6 +60,10 @@ interface Window {
         suggestedName: string,
         content: string
       ) => Promise<MarkdownFileDocument | null>
+    }
+    session: {
+      get: () => Promise<SessionState>
+      save: (state: SessionState) => Promise<SessionState>
     }
     notes: {
       getAll: () => Promise<Note[]>

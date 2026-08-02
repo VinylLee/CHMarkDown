@@ -86,7 +86,7 @@
           <p class="empty-sub">点击上方按钮创建第一篇</p>
         </div>
         <div
-          v-for="document in sortedDocuments"
+          v-for="document in orderedDocuments"
           :key="document.id"
           class="note-item"
           :class="{ 'note-item--active': document.id === selectedId }"
@@ -139,6 +139,7 @@ const props = defineProps<{
   externalFiles: OpenMarkdownFile[]
   recentFiles: RecentFile[]
   selectedId: string | null
+  documentOrder: string[]
 }>()
 
 defineEmits<{
@@ -177,8 +178,16 @@ const documents = computed<DocumentListItem[]>(() => [
 
 const documentCount = computed(() => documents.value.length)
 
-const sortedDocuments = computed(() => {
+const orderedDocuments = computed(() => {
+  const order = new Map(props.documentOrder.map((id, index) => [id, index]))
   return [...documents.value].sort((a, b) => {
+    const leftIndex = order.get(a.id)
+    const rightIndex = order.get(b.id)
+    if (leftIndex !== undefined || rightIndex !== undefined) {
+      if (leftIndex === undefined) return 1
+      if (rightIndex === undefined) return -1
+      return leftIndex - rightIndex
+    }
     return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
   })
 })

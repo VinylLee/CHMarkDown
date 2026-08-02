@@ -11,6 +11,7 @@
       :external-files="externalFiles"
       :recent-files="recentFiles"
       :selectedId="selectedId"
+      :document-order="documentOrder"
       @select="trySelectDocument"
       @close="handleCloseListItem"
       @create="tryCreateNote"
@@ -37,7 +38,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import NoteList from '../components/NoteList.vue'
 import NoteEditor from '../components/NoteEditor.vue'
 import { useConfirm } from '../composables/useConfirm'
@@ -53,11 +54,13 @@ import {
   upsertOpenMarkdownFile,
 } from '../utils/openMarkdownFiles'
 import type { OpenMarkdownFile } from '../utils/openMarkdownFiles'
+import { createSessionState, restoreSessionState } from '../utils/sessionState'
 
 const notes = ref<Note[]>([])
 const selectedId = ref<string | null>(null)
 const externalFiles = ref<OpenMarkdownFile[]>([])
 const recentFiles = ref<RecentFile[]>([])
+const documentOrder = ref<string[]>([])
 const startInEditMode = ref(false)
 const isDraggingFile = ref(false)
 const loading = ref(true)
@@ -71,6 +74,9 @@ let removeFileCommandListener: (() => void) | null = null
 let removeOpenFileRequestListener: (() => void) | null = null
 let dragDepth = 0
 let openFileQueue = Promise.resolve()
+let sessionSaveQueue = Promise.resolve()
+let sessionReady = false
+let sessionSaveErrorVisible = false
 
 const selectedNote = computed(() => {
   if (!selectedId.value) return null
@@ -120,6 +126,29 @@ async function trySelectDocument(id: string): Promise<void> {
   selectedId.value = id
 }
 
+function moveDocumentToFront(id: string): void {
+  documentOrder.value = [id, ...documentOrder.value.filter((item) => item !== id)]
+}
+
+function removeDocumentFromOrder(id: string): void {
+  documentOrder.value = documentOrder.value.filter((item) => item !== id)
+}
+
+function replaceDocumentInOrder(previousId: string | null, nextId: string): void {
+  if (!previousId) {
+    moveDocumentToFront(nextId)
+    return
+  }
+  const index = documentOrder.value.indexOf(previousId)
+  const remaining = documentOrder.value.filter((item) => item !== previousId && item !== nextId)
+  if (index < 0) {
+    documentOrder.value = [nextId, ...remaining]
+    return
+  }
+  remaining.splice(Math.min(index, remaining.length), 0, nextId)
+  documentOrder.value = remaining
+}
+
 async function tryCreateNote(): Promise<void> {
   if (!(await canLeaveCurrentNote())) return
   startInEditMode.value = true
@@ -127,19 +156,47 @@ async function tryCreateNote(): Promise<void> {
   if (created) selectedId.value = created.id
 }
 
-async function loadNotes(): Promise<void> {
+async function initializeWorkspace(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
     notes.value = await window.electronAPI.notes.getAll()
-    if (notes.value.length > 0 && !selectedId.value) {
-      selectedId.value = notes.value[0].id
-    }
   } catch (err) {
     error.value = '加载笔记失败，请重启应用。'
     show(error.value, 'error')
     console.error('Failed to load notes:', err)
+  }
+
+  let session: SessionState = { version: 1, documents: [], selected: null }
+  try {
+    session = await window.electronAPI.session.get()
+  } catch (err) {
+    show('上次会话记录已损坏，已使用安全状态启动。', 'error')
+    console.error('Failed to load session state:', err)
+  }
+
+  try {
+    const restored = await restoreSessionState(
+      session,
+      notes.value,
+      (filePath) => window.electronAPI.files.openMarkdownPath(filePath),
+    )
+    externalFiles.value = restored.externalFiles
+    documentOrder.value = restored.documentOrder
+    selectedId.value = restored.selectedId
+    if (restored.failedFilePaths.length > 0) {
+      show(
+        `${restored.failedFilePaths.length} 个上次打开的文件已移动、删除或无法读取，已跳过。`,
+        'error',
+      )
+    }
+  } catch (err) {
+    documentOrder.value = notes.value.map((note) => note.id)
+    selectedId.value = documentOrder.value[0] ?? null
+    show('恢复上次会话失败，已使用安全状态启动。', 'error')
+    console.error('Failed to restore session state:', err)
   } finally {
+    sessionReady = true
     loading.value = false
   }
 }
@@ -152,6 +209,7 @@ async function createNote(): Promise<Note | null> {
       content: '',
     })
     notes.value.push(newNote)
+    moveDocumentToFront(newNote.id)
     selectedId.value = newNote.id
     show('笔记已创建')
     return newNote
@@ -213,6 +271,7 @@ async function handleSave(data: { id: string; title: string; content: string }):
     if (existing) {
       Object.assign(existing, { title: data.title, content: data.content, updatedAt: updated.updatedAt })
     }
+    moveDocumentToFront(data.id)
     show('笔记已保存')
     return true
   } catch (err) {
@@ -240,7 +299,9 @@ async function handleOpenFile(): Promise<void> {
 async function activateOpenedFile(openedFile: MarkdownFileDocument): Promise<void> {
   startInEditMode.value = true
   externalFiles.value = upsertOpenMarkdownFile(externalFiles.value, openedFile)
-  selectedId.value = createOpenMarkdownFile(openedFile).id
+  const openedId = createOpenMarkdownFile(openedFile).id
+  moveDocumentToFront(openedId)
+  selectedId.value = openedId
   await recordRecentFile(openedFile.filePath)
   show(`已打开 ${openedFile.fileName}`)
 }
@@ -356,7 +417,9 @@ async function handleSaveAs(): Promise<void> {
       previousExternalId,
       savedFile
     )
-    selectedId.value = createOpenMarkdownFile(savedFile).id
+    const savedId = createOpenMarkdownFile(savedFile).id
+    replaceDocumentInOrder(previousExternalId, savedId)
+    selectedId.value = savedId
     startInEditMode.value = true
     await recordRecentFile(savedFile.filePath)
     show(`已另存为 ${savedFile.fileName}`)
@@ -386,15 +449,14 @@ async function handleFileCommand(command: FileCommand): Promise<void> {
 }
 
 function selectFallbackDocument(excludedId: string): void {
-  const nextExternalFile = externalFiles.value.find((file) => file.id !== excludedId)
-  const nextNote = notes.value.find((note) => note.id !== excludedId)
-  selectedId.value = nextExternalFile?.id ?? nextNote?.id ?? null
+  selectedId.value = documentOrder.value.find((id) => id !== excludedId) ?? null
 }
 
 async function handleCloseListItem(id: string, kind: 'note' | 'file'): Promise<void> {
   if (kind === 'file') {
     if (id === selectedId.value && !(await canLeaveCurrentNote())) return
     externalFiles.value = removeOpenMarkdownFile(externalFiles.value, id)
+    removeDocumentFromOrder(id)
     if (selectedId.value === id) {
       selectFallbackDocument(id)
     }
@@ -423,6 +485,7 @@ async function handleDelete(id: string): Promise<void> {
   try {
     await window.electronAPI.notes.delete(id)
     notes.value = notes.value.filter((n) => n.id !== id)
+    removeDocumentFromOrder(id)
     if (selectedId.value === id) {
       selectFallbackDocument(id)
     }
@@ -434,16 +497,59 @@ async function handleDelete(id: string): Promise<void> {
   }
 }
 
+function currentSessionState(): SessionState {
+  return createSessionState(
+    documentOrder.value,
+    notes.value,
+    externalFiles.value,
+    selectedId.value,
+  )
+}
+
+function queueSessionSave(state: SessionState): void {
+  sessionSaveQueue = sessionSaveQueue
+    .then(() => window.electronAPI.session.save(state))
+    .then(() => {
+      sessionSaveErrorVisible = false
+    })
+    .catch((err) => {
+      if (!sessionSaveErrorVisible) {
+        show('保存当前文档会话失败，下次启动可能无法恢复列表。', 'error')
+        sessionSaveErrorVisible = true
+      }
+      console.error('Failed to save session state:', err)
+    })
+}
+
+async function canCloseApp(): Promise<boolean> {
+  if (!(await canLeaveCurrentNote('close'))) return false
+  await sessionSaveQueue
+  try {
+    await window.electronAPI.session.save(currentSessionState())
+    return true
+  } catch (err) {
+    show('保存当前文档会话失败，已取消退出。', 'error')
+    console.error('Failed to save session before close:', err)
+    return false
+  }
+}
+
+watch(currentSessionState, (state) => {
+  if (sessionReady) queueSessionSave(state)
+})
+
 onMounted(() => {
   noteListPanel.activate()
-  unregisterCloseGuard = registerAppCloseGuard(() => canLeaveCurrentNote('close'))
+  unregisterCloseGuard = registerAppCloseGuard(canCloseApp)
   removeFileCommandListener = window.electronAPI.app.onFileCommand((command) => {
     void handleFileCommand(command)
   })
   removeOpenFileRequestListener = window.electronAPI.app.onOpenFileRequested((filePath) => {
     queueOpenFilePath(filePath, 'system')
   })
-  void Promise.all([loadNotes(), loadRecentFiles()])
+  const initialization = initializeWorkspace()
+  openFileQueue = initialization.catch(() => undefined)
+  void loadRecentFiles()
 })
 
 onUnmounted(() => {

@@ -23,6 +23,7 @@ import {
   readRecentFiles,
   removeRecentFile,
 } from './services/recentFileService'
+import { readSessionState, writeSessionState } from './services/sessionService'
 import { extractMarkdownFilePath } from './fileOpenRequest'
 import { hasManagedImages } from '../src/utils/markdownImageSize'
 
@@ -41,6 +42,10 @@ const pendingOpenPaths: string[] = []
 
 function getRecentFilesPath(): string {
   return path.join(app.getPath('userData'), 'recent-files.json')
+}
+
+function getSessionStatePath(): string {
+  return path.join(app.getPath('userData'), 'session.json')
 }
 
 function focusMainWindow(): void {
@@ -237,6 +242,14 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('files:clearRecent', () => {
     clearRecentFiles(getRecentFilesPath())
+  })
+
+  ipcMain.handle('session:get', () => {
+    return readSessionState(getSessionStatePath())
+  })
+
+  ipcMain.handle('session:save', (_event, state: unknown) => {
+    return writeSessionState(getSessionStatePath(), state)
   })
 
   ipcMain.handle('files:saveMarkdown', (_event, filePath: string, content: string) => {
