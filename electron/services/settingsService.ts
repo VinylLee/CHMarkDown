@@ -130,3 +130,23 @@ export function writeAppSettings(storagePath: string, value: unknown): AppSettin
     throw new Error(`保存偏好设置失败：${errorMessage(error)}`)
   }
 }
+
+export function createAppSettingsStore(storagePath: string) {
+  let cached: SettingsLoadResult | null = null
+
+  function read(): SettingsLoadResult {
+    if (!cached) cached = readAppSettings(storagePath)
+    return {
+      settings: { ...cached.settings },
+      warning: cached.warning,
+    }
+  }
+
+  function write(value: unknown): AppSettings {
+    const settings = writeAppSettings(storagePath, value)
+    cached = { settings, warning: null }
+    return { ...settings }
+  }
+
+  return { read, write }
+}

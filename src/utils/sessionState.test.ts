@@ -93,4 +93,32 @@ describe('sessionState', () => {
     expect(restored.documentOrder).toEqual(['note-1', 'note-2'])
     expect(restored.selectedId).toBe('note-1')
   })
+
+  it('reads external session files concurrently while preserving list order', async () => {
+    const resolvers = new Map<string, (document: MarkdownFileDocument) => void>()
+    const readMarkdown = vi.fn((filePath: string) => new Promise<MarkdownFileDocument>((resolve) => {
+      resolvers.set(filePath, resolve)
+    }))
+    const firstPath = 'D:\\docs\\first.md'
+    const secondPath = 'D:\\docs\\second.md'
+
+    const loading = restoreSessionState({
+      version: 1,
+      documents: [
+        { kind: 'file', filePath: firstPath },
+        { kind: 'file', filePath: secondPath },
+      ],
+      selected: null,
+    }, notes, readMarkdown)
+
+    expect(readMarkdown).toHaveBeenCalledTimes(2)
+    resolvers.get(secondPath)?.({ filePath: secondPath, fileName: 'second.md', content: '# Second' })
+    resolvers.get(firstPath)?.({ filePath: firstPath, fileName: 'first.md', content: '# First' })
+
+    const restored = await loading
+    expect(restored.documentOrder.slice(0, 2)).toEqual([
+      'file:d:\\docs\\first.md',
+      'file:d:\\docs\\second.md',
+    ])
+  })
 })

@@ -2,8 +2,8 @@
 
 ## 1. 技术方案
 
-- 桌面应用：Electron
-- 前端：Vue 3、TypeScript、Vite、原生 CSS
+- 桌面应用：Electron 43
+- 前端：Vue 3、TypeScript、Vite 8、原生 CSS
 - Markdown：markdown-it
 - 内容净化：DOMPurify
 - 数据保存：本地 JSON 文件
@@ -39,9 +39,12 @@ CHMarkDown/
 ├── resources/
 │   ├── chmarkdown.png
 │   └── chmarkdown.ico
+├── scripts/
+│   ├── measure-startup.ps1
+│   └── test-release-smoke.ps1
 ├── docs/
 ├── package.json
-└── vite.config.ts
+└── vite.config.mts
 ```
 
 ## 3. 数据模型
@@ -162,6 +165,9 @@ v0.2.1 实测数据：
 - 拖放事件只从 Electron 提供的 `File.path` 取得路径，实际读取继续通过 preload 和 IPC
 - 主进程从首次启动参数和 `second-instance` 参数中筛选 `.md` / `.markdown` 路径
 - `requestSingleInstanceLock` 保证“打开方式”复用现有窗口；渲染进程未就绪时路径进入内存队列
+- 单实例锁在应用就绪前获取；获取失败的后续进程立即调用 `app.quit()`，不创建 BrowserWindow
+- `second-instance` 事件统一调用 `focusMainWindow()`，可恢复最小化窗口或显示托盘中隐藏的窗口
+- 后续实例携带的 Markdown 路径继续交给现有窗口；窗口尚未就绪时复用待打开路径队列
 - 渲染进程串行处理菜单、最近文件、拖放和系统入口，共用未保存修改保护
 - 文件不存在、扩展名不支持、记录损坏或读写失败时显示用户可感知提示
 - portable 构建包含 Markdown 文件关联元数据，但不静默修改 Windows 默认应用设置
@@ -247,3 +253,28 @@ v0.2.1 实测数据：
 - 分隔线使用 `separator` 语义及垂直方向 ARIA 属性，左右方向键每次调整 2%，按住 Shift 调整 10%
 - 双击分隔线恢复 50:50；离开组件时移除文档级拖动监听并恢复光标、文本选择状态
 - 仅分栏模式应用自定义比例；纯编辑和纯预览继续占满可用编辑工作区
+
+## 19. v0.9.0 启动与运行性能
+
+- 主进程不再静态载入文档导出模块；首次执行导出时才动态载入图片引用解析、Markdown 解析和 ZIP 写入代码
+- 主进程初始 JavaScript 从 115.09 kB 降至 17.23 kB，导出逻辑保留在独立的 98.30 kB 按需块中
+- `BrowserWindow` 创建和页面加载先于应用菜单及托盘初始化，让 Chromium 加载与非关键原生界面初始化重叠执行
+- 主进程在启动时只读取并校验一次 `settings.json`；后续设置 IPC 和图片目录查询复用内存缓存，保存后刷新缓存
+- 渲染进程用 `Promise.allSettled` 并行读取笔记与会话，单项失败仍保留另一项的有效数据和原有错误提示
+- 会话中的多个外部 Markdown 文件并行读取、按忽略大小写的路径去重，并在完成后按原会话顺序组装列表
+- 设置弹窗、图片尺寸控件和文档大纲使用异步组件，只在用户实际打开对应功能时加载
+- `scripts/measure-startup.ps1` 使用隔离用户数据目录重复启动同一构建，并以主窗口标题出现为统一结束点
+- 测量脚本每轮结束只终止带有本轮隔离目录参数的进程，并校验临时目录后清理测试数据
+
+## 20. v1.0.0 稳定版与发行验证
+
+- Electron 更新到 43.2.0，electron-builder 更新到 26.15.3；应用继续使用隔离渲染进程和受限 preload API
+- Vite 8、Vitest 4 和新版 Electron 构建插件只改变构建与测试工具，不改变本地数据模型或产品权限边界
+- `vite.config.mts` 明确使用 ESM 配置格式，避免依赖未来 Vite 版本的 CommonJS 兼容加载器
+- 使用 npm 锁文件做全新依赖安装，再分别执行自动化测试、类型检查、生产构建和依赖审计
+- 文件服务回归包含超过 8 MiB 的 UTF-8 Markdown 原样写入和读取，防止大文件被截断或编码损坏
+- 正式发行同时生成 portable EXE 与 Windows x64 ZIP，并检查包内应用版本、主程序、ASAR 和图标资源
+- Windows 可执行文件保留 CHMarkDown 产品名、1.0.0 版本和应用图标，但当前不使用商业代码签名证书
+- 打包产物使用隔离用户数据目录实际启动；重复启动必须只有一个主窗口，第二次启动进程必须退出
+- `scripts/test-release-smoke.ps1` 同时验证解压版和便携版的窗口创建、命令行文件打开、最近文件、会话写入与单实例行为
+- 1.0.0 同机 5 次启动中位数为 portable 1.138 秒、解压版 0.386 秒；该结果包含 Electron 43 安全运行时的体积与启动开销

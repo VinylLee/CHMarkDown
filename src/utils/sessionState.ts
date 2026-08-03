@@ -47,8 +47,36 @@ export async function restoreSessionState(
   const externalFiles: OpenMarkdownFile[] = []
   const failedFilePaths: string[] = []
   const seenIds = new Set<string>()
+  const fileReads = new Map<string, Promise<MarkdownFileDocument>>()
 
-  for (const reference of session.documents) {
+  type LoadedReference =
+    | { kind: 'note'; id: string }
+    | { kind: 'file'; filePath: string; openedFile: OpenMarkdownFile | null }
+
+  const loadedReferences = await Promise.all(session.documents.map(async (
+    reference,
+  ): Promise<LoadedReference> => {
+    if (reference.kind === 'note') return reference
+
+    const readKey = reference.filePath.toLowerCase()
+    let pendingRead = fileReads.get(readKey)
+    if (!pendingRead) {
+      pendingRead = readMarkdown(reference.filePath)
+      fileReads.set(readKey, pendingRead)
+    }
+
+    try {
+      return {
+        kind: 'file',
+        filePath: reference.filePath,
+        openedFile: createOpenMarkdownFile(await pendingRead),
+      }
+    } catch {
+      return { kind: 'file', filePath: reference.filePath, openedFile: null }
+    }
+  }))
+
+  for (const reference of loadedReferences) {
     if (reference.kind === 'note') {
       if (noteIds.has(reference.id) && !seenIds.has(reference.id)) {
         documentOrder.push(reference.id)
@@ -57,15 +85,14 @@ export async function restoreSessionState(
       continue
     }
 
-    try {
-      const openedFile = createOpenMarkdownFile(await readMarkdown(reference.filePath))
-      if (!seenIds.has(openedFile.id)) {
-        externalFiles.push(openedFile)
-        documentOrder.push(openedFile.id)
-        seenIds.add(openedFile.id)
-      }
-    } catch {
+    if (!reference.openedFile) {
       failedFilePaths.push(reference.filePath)
+      continue
+    }
+    if (!seenIds.has(reference.openedFile.id)) {
+      externalFiles.push(reference.openedFile)
+      documentOrder.push(reference.openedFile.id)
+      seenIds.add(reference.openedFile.id)
     }
   }
 

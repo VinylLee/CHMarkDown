@@ -173,14 +173,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import MarkdownIt from 'markdown-it'
 import DOMPurify from 'dompurify'
 import { useConfirm } from '../composables/useConfirm'
 import { useToast } from '../composables/useToast'
-import ImageSizeControl from './ImageSizeControl.vue'
 import DocumentSearchPanel from './DocumentSearchPanel.vue'
-import DocumentOutline from './DocumentOutline.vue'
 import {
   configureMarkdownImageSizing,
   createManagedImageHtml,
@@ -202,6 +200,9 @@ import {
 } from '../utils/documentSearch'
 import { extractMarkdownHeadings } from '../utils/markdownOutline'
 import { resolveEditorShortcut } from '../utils/keyboardShortcut'
+
+const ImageSizeControl = defineAsyncComponent(() => import('./ImageSizeControl.vue'))
+const DocumentOutline = defineAsyncComponent(() => import('./DocumentOutline.vue'))
 
 const md = new MarkdownIt({
   html: false,

@@ -29,6 +29,7 @@
       @delete="handleDelete"
     />
     <SettingsDialog
+      v-if="settingsOpen"
       :open="settingsOpen"
       :settings="settings"
       :saving="settingsSaving"
@@ -46,10 +47,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from 'vue'
 import NoteList from '../components/NoteList.vue'
 import NoteEditor from '../components/NoteEditor.vue'
-import SettingsDialog from '../components/SettingsDialog.vue'
 import { useConfirm } from '../composables/useConfirm'
 import { useToast } from '../composables/useToast'
 import { useNoteListPanel } from '../composables/useNoteListPanel'
@@ -64,7 +64,10 @@ import {
 } from '../utils/openMarkdownFiles'
 import type { OpenMarkdownFile } from '../utils/openMarkdownFiles'
 import { createSessionState, restoreSessionState } from '../utils/sessionState'
+import { loadWorkspaceBootstrap } from '../utils/workspaceBootstrap'
 import { useAppSettings } from '../composables/useAppSettings'
+
+const SettingsDialog = defineAsyncComponent(() => import('../components/SettingsDialog.vue'))
 
 const notes = ref<Note[]>([])
 const selectedId = ref<string | null>(null)
@@ -169,25 +172,26 @@ async function tryCreateNote(): Promise<void> {
 async function initializeWorkspace(): Promise<void> {
   loading.value = true
   error.value = ''
-  try {
-    notes.value = await window.electronAPI.notes.getAll()
-  } catch (err) {
+  const bootstrap = await loadWorkspaceBootstrap(
+    () => window.electronAPI.notes.getAll(),
+    () => window.electronAPI.session.get(),
+  )
+  notes.value = bootstrap.notes
+
+  if (bootstrap.notesError) {
     error.value = '加载笔记失败，请重启应用。'
     show(error.value, 'error')
-    console.error('Failed to load notes:', err)
+    console.error('Failed to load notes:', bootstrap.notesError)
   }
 
-  let session: SessionState = { version: 1, documents: [], selected: null }
-  try {
-    session = await window.electronAPI.session.get()
-  } catch (err) {
+  if (bootstrap.sessionError) {
     show('上次会话记录已损坏，已使用安全状态启动。', 'error')
-    console.error('Failed to load session state:', err)
+    console.error('Failed to load session state:', bootstrap.sessionError)
   }
 
   try {
     const restored = await restoreSessionState(
-      session,
+      bootstrap.session,
       notes.value,
       (filePath) => window.electronAPI.files.openMarkdownPath(filePath),
     )

@@ -29,11 +29,7 @@ import {
   removeRecentFile,
 } from './services/recentFileService'
 import { readSessionState, writeSessionState } from './services/sessionService'
-import { readAppSettings, writeAppSettings } from './services/settingsService'
-import {
-  prepareDocumentExport,
-  writeDocumentExport,
-} from './services/documentExportService'
+import { createAppSettingsStore } from './services/settingsService'
 import type { DocumentExportInput } from './services/documentExportService'
 import { extractMarkdownFilePath } from './fileOpenRequest'
 import { resolveWindowCloseAction } from './windowClosePolicy'
@@ -52,6 +48,7 @@ let mainWindowCloseCoordinator: ReturnType<typeof createWindowCloseCoordinator> 
 let rendererReady = false
 let isQuitting = false
 let systemSessionEnding = false
+let settingsStore: ReturnType<typeof createAppSettingsStore> | null = null
 const pendingOpenPaths: string[] = []
 const extDirTokens = new Map<string, string>()
 const PREVIEW_IMAGE_EXTENSIONS = new Set([
@@ -70,8 +67,13 @@ function getSettingsPath(): string {
   return path.join(app.getPath('userData'), 'settings.json')
 }
 
+function getSettingsStore(): ReturnType<typeof createAppSettingsStore> {
+  if (!settingsStore) settingsStore = createAppSettingsStore(getSettingsPath())
+  return settingsStore
+}
+
 function getImageDirectoryName(): string {
-  return readAppSettings(getSettingsPath()).settings.imageDirectoryName
+  return getSettingsStore().read().settings.imageDirectoryName
 }
 
 function focusMainWindow(): void {
@@ -342,11 +344,11 @@ function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('settings:get', () => {
-    return readAppSettings(getSettingsPath())
+    return getSettingsStore().read()
   })
 
   ipcMain.handle('settings:save', (_event, settings: unknown) => {
-    const saved = writeAppSettings(getSettingsPath(), settings)
+    const saved = getSettingsStore().write(settings)
     syncTrayIcon(saved.showTrayIcon)
     return saved
   })
@@ -402,6 +404,9 @@ function registerIpcHandlers(): void {
       throw new Error('导出文档参数无效')
     }
 
+    const { prepareDocumentExport, writeDocumentExport } = await import(
+      './services/documentExportService'
+    )
     const plan = prepareDocumentExport(
       input,
       path.join(app.getPath('userData'), 'images'),
@@ -599,9 +604,10 @@ if (!hasSingleInstanceLock) {
   app.whenReady().then(() => {
     registerProtocol()
     registerIpcHandlers()
-    installApplicationMenu()
-    syncTrayIcon(readAppSettings(getSettingsPath()).settings.showTrayIcon)
+    const startupSettings = getSettingsStore().read().settings
     createWindow()
+    installApplicationMenu()
+    syncTrayIcon(startupSettings.showTrayIcon)
 
     const initialFilePath = extractMarkdownFilePath(process.argv)
     if (initialFilePath) {

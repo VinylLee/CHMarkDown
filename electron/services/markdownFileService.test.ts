@@ -56,6 +56,18 @@ describe('markdownFileService', () => {
     expect(readFileSync(filePath, 'utf8')).toBe(content)
   })
 
+  it('round-trips a large UTF-8 Markdown document without truncation', () => {
+    const filePath = path.join(testDirectory, 'large-document.md')
+    const section = '## 性能测试\n\n这是一个包含中文、emoji 🚀 和 `code` 的段落。\n\n'
+    const content = `# Large document\n\n${section.repeat(120_000)}`
+
+    writeMarkdownFile(filePath, content)
+    const restored = readMarkdownFile(filePath)
+
+    expect(Buffer.byteLength(content, 'utf8')).toBeGreaterThan(8 * 1024 * 1024)
+    expect(restored.content).toBe(content)
+  })
+
   it('rejects unsupported file extensions', () => {
     const filePath = path.join(testDirectory, 'note.txt')
 

@@ -4,6 +4,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   DEFAULT_APP_SETTINGS,
+  createAppSettingsStore,
   normalizeAppSettings,
   normalizeImageDirectoryName,
   readAppSettings,
@@ -98,5 +99,19 @@ describe('settingsService', () => {
     })
 
     expect(readAppSettings(storagePath).settings).toEqual(updated)
+  })
+
+  it('caches validated settings and refreshes the cache after saving', () => {
+    const store = createAppSettingsStore(storagePath)
+    const first = store.read()
+
+    writeFileSync(storagePath, JSON.stringify({
+      ...DEFAULT_APP_SETTINGS,
+      theme: 'dark',
+    }), 'utf8')
+
+    expect(store.read()).toEqual(first)
+    expect(store.write({ ...DEFAULT_APP_SETTINGS, theme: 'light' }).theme).toBe('light')
+    expect(store.read().settings.theme).toBe('light')
   })
 })

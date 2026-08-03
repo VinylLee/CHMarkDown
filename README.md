@@ -2,6 +2,8 @@
 
 CHMarkDown 是一个 Windows 本地 Markdown 编辑与笔记工具。内容和插入的图片都保存在本机，不需要账号或网络服务。
 
+当前稳定版：**1.0.0**。详细变化见 [更新日志](CHANGELOG.md)。
+
 ## 功能
 
 - 新建、编辑和删除笔记
@@ -23,6 +25,8 @@ CHMarkDown 是一个 Windows 本地 Markdown 编辑与笔记工具。内容和�
 - 编辑器偏好设置：浅色/深色/跟随系统主题、字体、字号、默认模式和自动换行
 - 可配置外部 Markdown 新插入图片使用的资源目录名称
 - 可配置系统托盘图标；开启时关闭窗口会隐藏到托盘，托盘菜单可恢复窗口或退出
+- 全局保持单实例运行；重复启动只恢复并聚焦现有窗口，不会创建多个编辑器进程窗口
+- 启动关键路径按需加载导出和非首屏界面，并行读取笔记、会话及外部文件
 - 未保存修改提示与关闭前保存保护
 - 笔记列表宽度和折叠状态持久化
 
@@ -39,13 +43,20 @@ CHMarkDown 是一个 Windows 本地 Markdown 编辑与笔记工具。内容和�
 
 ## 技术栈
 
-- Electron 28
+- Electron 43
 - Vue 3
 - TypeScript
-- Vite 5
+- Vite 8
 - markdown-it
 - DOMPurify
-- Vitest
+- Vitest 4
+
+## 下载
+
+请从 [GitHub Releases](https://github.com/VinylLee/CHMarkDown/releases/latest) 下载：
+
+- `CHMarkDown-1.0.0-portable-x64.exe`：单文件便携版，直接运行。
+- `CHMarkDown-1.0.0-win-x64.zip`：下载体积较小，完整解压后运行其中的 `CHMarkDown.exe`。
 
 ## 开发
 
@@ -59,6 +70,8 @@ npm run dev
 ```bash
 npm test
 npm run build
+npm run measure:startup
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-release-smoke.ps1
 ```
 
 ## 打包
@@ -82,6 +95,10 @@ Node.js，并且只保留简体中文和英文 Electron 语言资源。ZIP 版�
 在同一台测试设备上，v0.2.1 的 5 次启动中位时间为 1.023 秒，v0.2.0 为
 3.689 秒，改善约 72.3%。v0.2.1 的 ZIP 为 96.1 MiB，相比 241.2 MiB 的
 快速便携 EXE 减少约 60.2%。
+
+1.0.0 更新到仍处于安全维护范围内的 Electron 43 后，便携版为 327.46 MiB，
+ZIP 为 127.75 MiB；同机 5 次启动中位时间分别为 1.138 秒和 0.386 秒。完整数据、
+安全检查及 SHA-256 见 [更新日志](CHANGELOG.md)。
 
 ## 数据位置
 
