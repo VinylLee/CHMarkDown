@@ -23,6 +23,12 @@ interface MarkdownFileDocument {
   content: string
 }
 
+interface DocumentExportInput {
+  title: string
+  content: string
+  sourceFilePath?: string | null
+}
+
 interface RecentFile {
   filePath: string
   fileName: string
@@ -58,8 +64,10 @@ interface Window {
       saveMarkdown: (filePath: string, content: string) => Promise<MarkdownFileDocument>
       saveMarkdownAs: (
         suggestedName: string,
-        content: string
+        content: string,
+        sourceFilePath?: string | null,
       ) => Promise<MarkdownFileDocument | null>
+      exportDocument: (input: DocumentExportInput) => Promise<string | null>
     }
     session: {
       get: () => Promise<SessionState>
@@ -72,7 +80,12 @@ interface Window {
       delete: (id: string) => Promise<void>
       uploadImage: () => Promise<string | null>
       pasteImage: (buffer: ArrayBuffer, mimeType: string) => Promise<string>
-      exportNote: (noteId: string, noteTitle: string) => Promise<string | null>
+    }
+    extFiles: {
+      registerDir: (fileDir: string) => Promise<string>
+      unregisterDir: (token: string) => Promise<void>
+      uploadImage: (filePath: string) => Promise<string | null>
+      pasteImage: (filePath: string, buffer: ArrayBuffer, mimeType: string) => Promise<string>
     }
   }
 }

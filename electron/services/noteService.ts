@@ -2,7 +2,6 @@ import { app } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { convertManagedImagesForExport } from '../../src/utils/markdownImageSize'
 
 export interface Note {
   id: string
@@ -131,48 +130,4 @@ export function saveImageFromBuffer(buffer: Buffer, mimeType: string): string {
   fs.writeFileSync(destPath, buffer)
 
   return `chmarkdown://images/${filename}`
-}
-
-export async function exportNoteFile(noteId: string, destPath: string): Promise<{ hasImages: boolean }> {
-  const notes = readNotes()
-  const note = notes.find((n) => n.id === noteId)
-  if (!note) {
-    throw new Error('笔记不存在')
-  }
-
-  const exported = convertManagedImagesForExport(note.content)
-  const imageFiles = exported.imageFiles
-
-  if (imageFiles.length === 0) {
-    fs.writeFileSync(destPath, exported.content, 'utf-8')
-    return { hasImages: false }
-  }
-
-  const imagesDir = ensureImagesDir()
-  const { ZipArchive } = await import('archiver')
-  const output = fs.createWriteStream(destPath)
-  const archive = new ZipArchive({ zlib: { level: 9 } })
-
-  archive.on('error', (err) => {
-    output.destroy()
-    throw err
-  })
-
-  archive.pipe(output)
-
-  const safeTitle = note.title.replace(/[<>:"/\\|?*]/g, '_') || '未命名笔记'
-  archive.append(exported.content, { name: `${safeTitle}.md` })
-
-  for (const imgFile of imageFiles) {
-    const imgPath = path.join(imagesDir, imgFile)
-    if (fs.existsSync(imgPath)) {
-      archive.file(imgPath, { name: `images/${imgFile}` })
-    }
-  }
-
-  await archive.finalize()
-  await new Promise<void>((resolve) => {
-    output.on('close', () => resolve())
-  })
-  return { hasImages: true }
 }

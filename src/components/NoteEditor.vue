@@ -35,8 +35,8 @@
 
         <span class="toolbar-sep"></span>
 
-        <button class="btn-tool" @click="handleInsertImage" :disabled="Boolean(documentPath)"
-          :title="documentPath ? '外部文件的图片插入将在后续版本支持' : '插入图片'">
+        <button class="btn-tool" @click="handleInsertImage"
+          title="插入图片">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
             <rect x="1.5" y="2.5" width="11" height="9" rx="1.5" stroke="currentColor" stroke-width="1.3" />
             <circle cx="4.5" cy="5.5" r="1.2" stroke="currentColor" stroke-width="1" />
@@ -68,7 +68,7 @@
 
         <span v-if="!documentPath" class="toolbar-sep"></span>
 
-        <button v-if="!documentPath" class="btn-tool" @click="handleExport" title="导出笔记">
+        <button class="btn-tool" @click="handleExport" title="导出当前文档">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
             <path d="M6 1.5V8M6 8L3.5 5.5M6 8L8.5 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
               stroke-linejoin="round" />
@@ -162,6 +162,7 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import MarkdownIt from 'markdown-it'
 import DOMPurify from 'dompurify'
 import { useConfirm } from '../composables/useConfirm'
+import { useToast } from '../composables/useToast'
 import ImageSizeControl from './ImageSizeControl.vue'
 import DocumentSearchPanel from './DocumentSearchPanel.vue'
 import DocumentOutline from './DocumentOutline.vue'
@@ -171,6 +172,7 @@ import {
   findResizableMarkdownImages,
   updateMarkdownImageWidth,
 } from '../utils/markdownImageSize'
+import { transformExternalImagePaths } from '../utils/externalFileImages'
 import { configureMarkdownSourceMap, findSourceLine } from '../utils/markdownSourceMap'
 import { useScrollSync } from '../composables/useScrollSync'
 import {
@@ -193,7 +195,7 @@ const md = new MarkdownIt({
 configureMarkdownImageSizing(md)
 configureMarkdownSourceMap(md)
 
-const ALLOWED_URI_REGEXP = /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|chmarkdown):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i
+const ALLOWED_URI_REGEXP = /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|chmarkdown|chmarkdown-ext):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i
 
 const props = defineProps<{
   note: Note | null
@@ -212,6 +214,7 @@ const isDirty = ref(false)
 const isEditing = ref(false)
 const isSaving = ref(false)
 const selectedImageIndex = ref<number | null>(null)
+const extImageToken = ref<string | null>(null)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const previewRef = ref<HTMLElement | null>(null)
 const syncEnabled = ref(true)
@@ -226,6 +229,7 @@ const currentMatchIndex = ref(0)
 const replaceMessage = ref('')
 const searchPanelRef = ref<InstanceType<typeof DocumentSearchPanel> | null>(null)
 const { requestConfirm } = useConfirm()
+const { show } = useToast()
 const scrollSync = useScrollSync({
   textareaRef,
   previewRef,
@@ -243,8 +247,13 @@ interface DocumentSearchSelection {
   editorRange: { start: number; end: number } | null
 }
 
+const preparedContent = computed(() => {
+  if (!props.documentPath) return editContent.value
+  return transformExternalImagePaths(editContent.value, extImageToken.value)
+})
+
 const renderedMarkdown = computed(() => {
-  const raw = md.render(editContent.value || '', {
+  const raw = md.render(preparedContent.value || '', {
     selectedImageIndex: selectedImageIndex.value,
   })
   return DOMPurify.sanitize(raw, {
@@ -295,6 +304,28 @@ watch(
       replaceMessage.value = ''
       if (props.startInEditMode) {
         nextTick(() => textareaRef.value?.focus())
+      }
+    }
+  },
+  { immediate: true }
+)
+
+watch(
+  () => props.documentPath,
+  async (newPath, oldPath) => {
+    if (oldPath && extImageToken.value) {
+      await window.electronAPI.extFiles.unregisterDir(extImageToken.value)
+      extImageToken.value = null
+    }
+    if (newPath) {
+      const fileDir = newPath.slice(0, Math.max(newPath.lastIndexOf('\\'), newPath.lastIndexOf('/')))
+      if (fileDir) {
+        try {
+          extImageToken.value = await window.electronAPI.extFiles.registerDir(fileDir)
+        } catch (err) {
+          console.error('Failed to register external file directory:', err)
+          show('加载外部文档图片失败，请检查文档目录。', 'error')
+        }
       }
     }
   },
@@ -613,26 +644,59 @@ async function handleSave(): Promise<boolean> {
   return pendingSave
 }
 
+function insertAtCursor(text: string): void {
+  const textarea = textareaRef.value
+  if (!textarea) {
+    editContent.value += text
+    return
+  }
+  const start = textarea.selectionStart
+  const end = textarea.selectionEnd
+  editContent.value =
+    editContent.value.slice(0, start) +
+    text +
+    editContent.value.slice(end)
+  void nextTick(() => {
+    const pos = start + text.length
+    textarea.setSelectionRange(pos, pos)
+    textarea.focus()
+  })
+}
+
 async function handleInsertImage(): Promise<void> {
-  if (props.documentPath) return
   if (!isEditing.value) {
     isEditing.value = true
     await nextTick()
   }
+
+  if (props.documentPath) {
+    try {
+      const relativePath = await window.electronAPI.extFiles.uploadImage(props.documentPath)
+      if (relativePath) {
+        insertAtCursor(`\n![图片](${relativePath})\n`)
+        isDirty.value = true
+      }
+    } catch (err) {
+      console.error('Failed to upload image for external file:', err)
+      show('插入图片失败，请检查文档目录和文件权限。', 'error')
+    }
+    return
+  }
+
   try {
     const imageUrl = await window.electronAPI.notes.uploadImage()
     if (imageUrl) {
-      editContent.value += `\n${createManagedImageHtml(imageUrl)}\n`
+      insertAtCursor(`\n${createManagedImageHtml(imageUrl)}\n`)
       isDirty.value = true
       selectLastImage()
     }
   } catch (err) {
     console.error('Failed to upload image:', err)
+    show('插入图片失败，请检查图片文件。', 'error')
   }
 }
 
 async function handlePaste(e: ClipboardEvent): Promise<void> {
-  if (props.documentPath) return
   const items = e.clipboardData?.items
   if (!items) return
 
@@ -641,14 +705,33 @@ async function handlePaste(e: ClipboardEvent): Promise<void> {
       e.preventDefault()
       const file = item.getAsFile()
       if (!file) continue
+
+      if (props.documentPath) {
+        try {
+          const buffer = await file.arrayBuffer()
+          const relativePath = await window.electronAPI.extFiles.pasteImage(
+            props.documentPath,
+            buffer,
+            file.type,
+          )
+          insertAtCursor(`\n![图片](${relativePath})\n`)
+          isDirty.value = true
+        } catch (err) {
+          console.error('Failed to paste image for external file:', err)
+          show('粘贴图片失败，请检查文档目录和文件权限。', 'error')
+        }
+        return
+      }
+
       try {
         const buffer = await file.arrayBuffer()
         const imageUrl = await window.electronAPI.notes.pasteImage(buffer, file.type)
-        editContent.value += `\n${createManagedImageHtml(imageUrl)}\n`
+        insertAtCursor(`\n${createManagedImageHtml(imageUrl)}\n`)
         isDirty.value = true
         selectLastImage()
       } catch (err) {
         console.error('Failed to paste image:', err)
+        show('粘贴图片失败。', 'error')
       }
       return
     }
@@ -690,13 +773,19 @@ async function handleExport(): Promise<void> {
     if (!(await handleSave())) return
   }
   try {
-    const savedPath = await window.electronAPI.notes.exportNote(props.note.id, props.note.title)
+    const savedPath = await window.electronAPI.files.exportDocument({
+      title: editTitle.value.trim() || '未命名笔记',
+      content: editContent.value,
+      sourceFilePath: props.documentPath ?? null,
+    })
     if (savedPath) {
-      // Show brief feedback — the path where it was saved
-      console.log('Exported to:', savedPath)
+      show(`已导出到 ${savedPath}`)
     }
   } catch (err) {
     console.error('Failed to export note:', err)
+    const rawMessage = err instanceof Error ? err.message : String(err)
+    const message = rawMessage.match(/: Error: (.+)$/s)?.[1] ?? rawMessage
+    show(`导出失败：${message}`, 'error')
   }
 }
 
@@ -725,12 +814,32 @@ function getDraft(): { id: string; title: string; content: string } | null {
 
 defineExpose({ isDirty, save: handleSave, getDraft })
 
+function attachImageErrorHandlers(): void {
+  const preview = previewRef.value
+  if (!preview) return
+  const images = preview.querySelectorAll('img')
+  images.forEach((img) => {
+    if (img.dataset.errorHandled === 'true') return
+    img.dataset.errorHandled = 'true'
+    img.addEventListener('error', () => {
+      img.classList.add('image-load-error')
+    }, { once: true })
+  })
+}
+
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
+  if (extImageToken.value) {
+    window.electronAPI.extFiles.unregisterDir(extImageToken.value).catch(() => {})
+  }
+})
+
+watch(renderedMarkdown, () => {
+  nextTick(() => attachImageErrorHandlers())
 })
 </script>
 
@@ -1069,6 +1178,28 @@ onUnmounted(() => {
   border-radius: var(--radius-sm);
   margin: 8px 0;
   box-shadow: var(--shadow-sm);
+}
+
+.content-preview :deep(img.image-load-error) {
+  display: inline-block;
+  min-width: 120px;
+  min-height: 50px;
+  background: #f1f5f9;
+  border: 1px dashed #cbd5e1;
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+  position: relative;
+}
+
+.content-preview :deep(img.image-load-error)::after {
+  content: '图片加载失败';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #94a3b8;
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .content-preview :deep(.chmarkdown-resizable-image) {

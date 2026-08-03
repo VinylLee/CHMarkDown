@@ -405,9 +405,11 @@ async function handleSaveAs(): Promise<void> {
 
   error.value = ''
   try {
+    const sourcePath = activeExternalFile.value?.filePath ?? null
     const savedFile = await window.electronAPI.files.saveMarkdownAs(
       activeExternalFile.value?.fileName ?? draft.title,
-      draft.content
+      draft.content,
+      sourcePath,
     )
     if (!savedFile) return
 

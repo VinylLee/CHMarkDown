@@ -17,6 +17,12 @@ export interface MarkdownFileDocument {
   content: string
 }
 
+export interface DocumentExportInput {
+  title: string
+  content: string
+  sourceFilePath?: string | null
+}
+
 export interface RecentFile {
   filePath: string
   fileName: string
@@ -72,9 +78,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('files:saveMarkdown', filePath, content),
     saveMarkdownAs: (
       suggestedName: string,
-      content: string
+      content: string,
+      sourceFilePath?: string | null,
     ): Promise<MarkdownFileDocument | null> =>
-      ipcRenderer.invoke('files:saveMarkdownAs', suggestedName, content),
+      ipcRenderer.invoke('files:saveMarkdownAs', suggestedName, content, sourceFilePath),
+    exportDocument: (input: DocumentExportInput): Promise<string | null> =>
+      ipcRenderer.invoke('files:exportDocument', input),
   },
   session: {
     get: (): Promise<SessionState> => ipcRenderer.invoke('session:get'),
@@ -90,7 +99,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     uploadImage: (): Promise<string | null> => ipcRenderer.invoke('notes:uploadImage'),
     pasteImage: (buffer: ArrayBuffer, mimeType: string): Promise<string> =>
       ipcRenderer.invoke('notes:pasteImage', buffer, mimeType),
-    exportNote: (noteId: string, noteTitle: string): Promise<string | null> =>
-      ipcRenderer.invoke('notes:exportNote', noteId, noteTitle),
+  },
+  extFiles: {
+    registerDir: (fileDir: string): Promise<string> =>
+      ipcRenderer.invoke('ext-files:registerDir', fileDir),
+    unregisterDir: (token: string): Promise<void> =>
+      ipcRenderer.invoke('ext-files:unregisterDir', token),
+    uploadImage: (filePath: string): Promise<string | null> =>
+      ipcRenderer.invoke('ext-files:uploadImage', filePath),
+    pasteImage: (filePath: string, buffer: ArrayBuffer, mimeType: string): Promise<string> =>
+      ipcRenderer.invoke('ext-files:pasteImage', filePath, buffer, mimeType),
   },
 })

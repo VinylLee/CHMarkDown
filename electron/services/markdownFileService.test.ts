@@ -1,4 +1,6 @@
 import {
+  existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -8,8 +10,12 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  copyImageToExternalDir,
+  copyImagesDirForSaveAs,
   createMarkdownDefaultName,
   readMarkdownFile,
+  resolveExternalImagePath,
+  saveImageBufferToExternalDir,
   writeMarkdownFile,
 } from './markdownFileService'
 
@@ -69,5 +75,71 @@ describe('markdownFileService', () => {
     const filePath = path.join(testDirectory, 'missing.md')
 
     expect(() => readMarkdownFile(filePath)).toThrow('打开 Markdown 文件失败')
+  })
+
+  it('copies selected and pasted images beside an external document', () => {
+    const documentPath = path.join(testDirectory, 'document', 'note.md')
+    const sourceImage = path.join(testDirectory, 'source.png')
+    mkdirSync(path.dirname(documentPath), { recursive: true })
+    writeFileSync(documentPath, '# Note')
+    writeFileSync(sourceImage, 'selected-image')
+
+    const selected = copyImageToExternalDir(sourceImage, documentPath)
+    const pasted = saveImageBufferToExternalDir(
+      Buffer.from('pasted-image'),
+      'image/jpeg',
+      documentPath,
+    )
+
+    expect(selected.relativePath).toMatch(/^images\/[\w-]+\.png$/)
+    expect(readFileSync(selected.absolutePath, 'utf8')).toBe('selected-image')
+    expect(pasted.relativePath).toMatch(/^images\/[\w-]+\.jpg$/)
+    expect(readFileSync(pasted.absolutePath, 'utf8')).toBe('pasted-image')
+  })
+
+  it('resolves encoded image paths inside the document directory only', () => {
+    const documentDir = path.join(testDirectory, 'document')
+    const imagesDir = path.join(documentDir, 'images')
+    const imagePath = path.join(imagesDir, 'my photo.png')
+    const outsidePath = path.join(testDirectory, 'outside.png')
+    mkdirSync(imagesDir, { recursive: true })
+    writeFileSync(imagePath, 'image')
+    writeFileSync(outsidePath, 'outside')
+
+    expect(resolveExternalImagePath(documentDir, 'images/my%20photo.png')).toBe(imagePath)
+    expect(resolveExternalImagePath(documentDir, '../outside.png')).toBeNull()
+    expect(resolveExternalImagePath(documentDir, 'images/missing.png')).toBeNull()
+  })
+
+  it('copies nested image resources during save as', () => {
+    const sourceDocument = path.join(testDirectory, 'source', 'note.md')
+    const destinationDocument = path.join(testDirectory, 'destination', 'copy.md')
+    const nestedImage = path.join(path.dirname(sourceDocument), 'images', 'nested', 'photo.png')
+    mkdirSync(path.dirname(nestedImage), { recursive: true })
+    mkdirSync(path.dirname(destinationDocument), { recursive: true })
+    writeFileSync(sourceDocument, '# Note')
+    writeFileSync(nestedImage, 'image')
+
+    const copiedDir = copyImagesDirForSaveAs(sourceDocument, destinationDocument)
+    const copiedImage = path.join(path.dirname(destinationDocument), 'images', 'nested', 'photo.png')
+
+    expect(copiedDir).toBe(path.join(path.dirname(destinationDocument), 'images'))
+    expect(readFileSync(copiedImage, 'utf8')).toBe('image')
+  })
+
+  it('does not overwrite an existing destination images directory', () => {
+    const sourceDocument = path.join(testDirectory, 'source', 'note.md')
+    const destinationDocument = path.join(testDirectory, 'destination', 'copy.md')
+    const sourceImages = path.join(path.dirname(sourceDocument), 'images')
+    const destinationImages = path.join(path.dirname(destinationDocument), 'images')
+    mkdirSync(sourceImages, { recursive: true })
+    mkdirSync(destinationImages, { recursive: true })
+    writeFileSync(path.join(sourceImages, 'photo.png'), 'source')
+    writeFileSync(path.join(destinationImages, 'photo.png'), 'existing')
+
+    expect(() => copyImagesDirForSaveAs(sourceDocument, destinationDocument))
+      .toThrow('目标位置已存在 images 文件夹')
+    expect(existsSync(path.join(destinationImages, 'photo.png'))).toBe(true)
+    expect(readFileSync(path.join(destinationImages, 'photo.png'), 'utf8')).toBe('existing')
   })
 })

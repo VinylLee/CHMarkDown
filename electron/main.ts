@@ -1,6 +1,8 @@
 import { app, BrowserWindow, ipcMain, dialog, protocol, net, Menu } from 'electron'
 import type { MenuItemConstructorOptions } from 'electron'
 import path from 'node:path'
+import fs from 'node:fs'
+import crypto from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 import { createWindowCloseCoordinator } from './windowCloseCoordinator'
 import {
@@ -10,12 +12,15 @@ import {
   deleteNote,
   copyImage,
   saveImageFromBuffer,
-  exportNoteFile,
 } from './services/noteService'
 import {
   createMarkdownDefaultName,
   readMarkdownFile,
   writeMarkdownFile,
+  copyImageToExternalDir,
+  saveImageBufferToExternalDir,
+  copyImagesDirForSaveAs,
+  resolveExternalImagePath,
 } from './services/markdownFileService'
 import {
   addRecentFile,
@@ -24,8 +29,12 @@ import {
   removeRecentFile,
 } from './services/recentFileService'
 import { readSessionState, writeSessionState } from './services/sessionService'
+import {
+  prepareDocumentExport,
+  writeDocumentExport,
+} from './services/documentExportService'
+import type { DocumentExportInput } from './services/documentExportService'
 import { extractMarkdownFilePath } from './fileOpenRequest'
-import { hasManagedImages } from '../src/utils/markdownImageSize'
 
 const APP_NAME = 'CHMarkDown'
 const APP_USER_MODEL_ID = 'com.chmarkdown.desktop'
@@ -39,6 +48,10 @@ let mainWindow: BrowserWindow | null = null
 let mainWindowCloseCoordinator: ReturnType<typeof createWindowCloseCoordinator> | null = null
 let rendererReady = false
 const pendingOpenPaths: string[] = []
+const extDirTokens = new Map<string, string>()
+const PREVIEW_IMAGE_EXTENSIONS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg',
+])
 
 function getRecentFilesPath(): string {
   return path.join(app.getPath('userData'), 'recent-files.json')
@@ -187,6 +200,20 @@ function registerProtocol(): void {
     const fullPath = path.join(app.getPath('userData'), relativePath)
     return net.fetch(pathToFileURL(fullPath).toString())
   })
+
+  protocol.handle('chmarkdown-ext', (request) => {
+    const url = new URL(request.url)
+    const token = url.hostname
+    const relativePath = url.pathname.replace(/^\//, '')
+    const baseDir = extDirTokens.get(token)
+    if (!baseDir) return new Response('Not Found', { status: 404 })
+    if (!PREVIEW_IMAGE_EXTENSIONS.has(path.extname(relativePath).toLowerCase())) {
+      return new Response('Forbidden', { status: 403 })
+    }
+    const resolvedPath = resolveExternalImagePath(baseDir, relativePath)
+    if (!resolvedPath) return new Response('Not Found', { status: 404 })
+    return net.fetch(pathToFileURL(resolvedPath).toString())
+  })
 }
 
 function registerIpcHandlers(): void {
@@ -258,7 +285,12 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle(
     'files:saveMarkdownAs',
-    async (_event, suggestedName: string, content: string) => {
+    async (
+      _event,
+      suggestedName: string,
+      content: string,
+      sourceFilePath?: string | null,
+    ) => {
       if (!mainWindow) {
         throw new Error('应用窗口未就绪')
       }
@@ -270,9 +302,87 @@ function registerIpcHandlers(): void {
       if (result.canceled || !result.filePath) {
         return null
       }
-      return writeMarkdownFile(path.resolve(result.filePath), content)
+      const destinationPath = path.resolve(result.filePath)
+      const copiedImagesDir = sourceFilePath
+        ? copyImagesDirForSaveAs(sourceFilePath, destinationPath)
+        : null
+      try {
+        return writeMarkdownFile(destinationPath, content)
+      } catch (error) {
+        if (copiedImagesDir) {
+          fs.rmSync(copiedImagesDir, { recursive: true, force: true })
+        }
+        throw error
+      }
     }
   )
+
+  ipcMain.handle('files:exportDocument', async (_event, input: DocumentExportInput) => {
+    if (!mainWindow) {
+      throw new Error('应用窗口未就绪')
+    }
+    if (
+      !input ||
+      typeof input.title !== 'string' ||
+      typeof input.content !== 'string' ||
+      (input.sourceFilePath != null && typeof input.sourceFilePath !== 'string')
+    ) {
+      throw new Error('导出文档参数无效')
+    }
+
+    const plan = prepareDocumentExport(
+      input,
+      path.join(app.getPath('userData'), 'images'),
+    )
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: '导出文档',
+      defaultPath: plan.defaultFileName,
+      filters: plan.kind === 'zip'
+        ? [{ name: 'ZIP 压缩包', extensions: ['zip'] }]
+        : [{ name: 'Markdown 文件', extensions: ['md'] }],
+    })
+    if (result.canceled || !result.filePath) return null
+
+    await writeDocumentExport(plan, result.filePath)
+    return result.filePath
+  })
+
+  ipcMain.handle('ext-files:registerDir', (_event, fileDir: string) => {
+    const resolvedDir = fs.realpathSync(path.resolve(fileDir))
+    if (!fs.statSync(resolvedDir).isDirectory()) {
+      throw new Error('外部 Markdown 文件目录无效')
+    }
+    const token = crypto.randomUUID()
+    extDirTokens.set(token, resolvedDir)
+    return token
+  })
+
+  ipcMain.handle('ext-files:unregisterDir', (_event, token: string) => {
+    extDirTokens.delete(token)
+  })
+
+  ipcMain.handle('ext-files:uploadImage', async (_event, filePath: string) => {
+    if (!mainWindow) {
+      throw new Error('应用窗口未就绪')
+    }
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: '选择图片',
+      filters: [
+        { name: '图片文件', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'] },
+      ],
+      properties: ['openFile'],
+    })
+    if (result.canceled || result.filePaths.length === 0) {
+      return null
+    }
+    const copied = copyImageToExternalDir(result.filePaths[0], filePath)
+    return copied.relativePath
+  })
+
+  ipcMain.handle('ext-files:pasteImage', (_event, filePath: string, buffer: ArrayBuffer, mimeType: string) => {
+    const copied = saveImageBufferToExternalDir(Buffer.from(buffer), mimeType, filePath)
+    return copied.relativePath
+  })
 
   // Note handlers
   ipcMain.handle('notes:getAll', () => {
@@ -314,31 +424,6 @@ function registerIpcHandlers(): void {
     return saveImageFromBuffer(Buffer.from(buffer), mimeType)
   })
 
-  // Export note
-  ipcMain.handle('notes:exportNote', async (_event, noteId: string, noteTitle: string) => {
-    if (!mainWindow) {
-      throw new Error('应用窗口未就绪')
-    }
-    const hasImages = hasManagedImages(
-      getAllNotes().find((n) => n.id === noteId)?.content || ''
-    )
-    const safeTitle = noteTitle.replace(/[<>:"/\\|?*]/g, '_') || '未命名笔记'
-    const defaultExt = hasImages ? '.zip' : '.md'
-    const filters = hasImages
-      ? [{ name: 'ZIP 压缩包', extensions: ['zip'] }]
-      : [{ name: 'Markdown 文件', extensions: ['md'] }]
-
-    const result = await dialog.showSaveDialog(mainWindow, {
-      title: '导出笔记',
-      defaultPath: `${safeTitle}${defaultExt}`,
-      filters,
-    })
-    if (result.canceled || !result.filePath) {
-      return null
-    }
-    await exportNoteFile(noteId, result.filePath)
-    return result.filePath
-  })
 }
 
 function createWindow(): void {

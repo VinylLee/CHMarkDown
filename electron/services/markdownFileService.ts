@@ -1,5 +1,16 @@
-import { readFileSync, writeFileSync } from 'node:fs'
+import {
+  copyFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import path from 'node:path'
+import crypto from 'node:crypto'
 
 const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown'])
 
@@ -59,5 +70,118 @@ export function writeMarkdownFile(filePath: string, content: string): MarkdownFi
     }
   } catch (error) {
     throw new Error(`保存 Markdown 文件失败：${errorMessage(error)}`)
+  }
+}
+
+function getDocumentDir(filePath: string): string {
+  return path.dirname(path.resolve(filePath))
+}
+
+function ensureExternalImagesDir(fileDir: string): string {
+  const imagesDir = path.join(fileDir, 'images')
+  if (!existsSync(imagesDir)) {
+    mkdirSync(imagesDir, { recursive: true })
+  }
+  return imagesDir
+}
+
+function isSafeSubPath(baseDir: string, targetPath: string): boolean {
+  const resolvedBase = path.resolve(baseDir)
+  const resolvedTarget = path.resolve(targetPath)
+  const relative = path.relative(resolvedBase, resolvedTarget)
+  if (relative === '' || relative.startsWith('..')) {
+    return false
+  }
+  return !path.isAbsolute(relative)
+}
+
+export function resolveExternalImagePath(fileDir: string, relativePath: string): string | null {
+  if (!relativePath) return null
+
+  try {
+    const decodedPath = decodeURIComponent(relativePath).replace(/[\\/]/g, path.sep)
+    const resolvedBase = realpathSync(path.resolve(fileDir))
+    const resolvedPath = path.resolve(resolvedBase, decodedPath)
+    if (!isSafeSubPath(resolvedBase, resolvedPath) || !existsSync(resolvedPath)) return null
+
+    const realPath = realpathSync(resolvedPath)
+    if (!isSafeSubPath(resolvedBase, realPath) || !statSync(realPath).isFile()) return null
+    return realPath
+  } catch {
+    return null
+  }
+}
+
+export function copyImageToExternalDir(sourcePath: string, filePath: string): { absolutePath: string; relativePath: string } {
+  const fileDir = getDocumentDir(filePath)
+  const imagesDir = ensureExternalImagesDir(fileDir)
+
+  const ext = path.extname(sourcePath) || '.png'
+  const filename = `${crypto.randomUUID()}${ext}`
+  const destPath = path.join(imagesDir, filename)
+
+  copyFileSync(sourcePath, destPath)
+
+  return {
+    absolutePath: destPath,
+    relativePath: `images/${filename}`,
+  }
+}
+
+export function saveImageBufferToExternalDir(
+  buffer: Buffer,
+  mimeType: string,
+  filePath: string,
+): { absolutePath: string; relativePath: string } {
+  const fileDir = getDocumentDir(filePath)
+  const imagesDir = ensureExternalImagesDir(fileDir)
+
+  const extMap: Record<string, string> = {
+    'image/png': '.png',
+    'image/jpeg': '.jpg',
+    'image/gif': '.gif',
+    'image/webp': '.webp',
+    'image/bmp': '.bmp',
+  }
+  const ext = extMap[mimeType] || '.png'
+  const filename = `${crypto.randomUUID()}${ext}`
+  const destPath = path.join(imagesDir, filename)
+
+  writeFileSync(destPath, buffer)
+
+  return {
+    absolutePath: destPath,
+    relativePath: `images/${filename}`,
+  }
+}
+
+export function copyImagesDirForSaveAs(
+  sourceFilePath: string,
+  destFilePath: string,
+): string | null {
+  const sourceDir = getDocumentDir(sourceFilePath)
+  const sourceImagesDir = path.join(sourceDir, 'images')
+  if (!existsSync(sourceImagesDir)) return null
+
+  const destDir = getDocumentDir(destFilePath)
+  const destImagesDir = path.join(destDir, 'images')
+  if (path.resolve(sourceImagesDir).toLowerCase() === path.resolve(destImagesDir).toLowerCase()) {
+    return null
+  }
+  if (existsSync(destImagesDir)) {
+    throw new Error('目标位置已存在 images 文件夹，请选择其他目录以避免覆盖资源')
+  }
+
+  try {
+    cpSync(sourceImagesDir, destImagesDir, {
+      recursive: true,
+      errorOnExist: true,
+      force: false,
+    })
+    return destImagesDir
+  } catch (error) {
+    rmSync(destImagesDir, { recursive: true, force: true })
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`复制 Markdown 图片资源失败：${message}`)
   }
 }
