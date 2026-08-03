@@ -83,10 +83,10 @@ function handleSliderInput(event: Event): void {
   display: flex;
   align-items: center;
   gap: 14px;
-  border-bottom: 1px solid #dbe7f5;
+  border-bottom: 1px solid var(--color-border);
   background:
     linear-gradient(90deg, rgba(74, 158, 255, 0.08), transparent 34%),
-    #f8fbff;
+    var(--color-surface-soft);
   color: var(--color-text-secondary);
   flex-shrink: 0;
 }
@@ -96,7 +96,7 @@ function handleSliderInput(event: Event): void {
   align-items: center;
   gap: 7px;
   min-width: 150px;
-  color: #334155;
+  color: var(--color-text);
   font-size: 12px;
   font-weight: 650;
 }
@@ -109,7 +109,7 @@ function handleSliderInput(event: Event): void {
   justify-content: center;
   border-radius: 8px;
   color: var(--color-primary);
-  background: #ffffff;
+  background: var(--color-control-bg);
   box-shadow: 0 1px 4px rgba(43, 110, 181, 0.14);
 }
 
@@ -124,9 +124,9 @@ function handleSliderInput(event: Event): void {
   align-items: center;
   padding: 2px;
   gap: 2px;
-  border: 1px solid #dbe3ee;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--color-control-bg);
 }
 
 .preset-button {
@@ -136,7 +136,7 @@ function handleSliderInput(event: Event): void {
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: #64748b;
+  color: var(--color-text-secondary);
   font-size: 11px;
   font-weight: 550;
   cursor: pointer;
@@ -144,8 +144,8 @@ function handleSliderInput(event: Event): void {
 }
 
 .preset-button:hover {
-  color: #1e609f;
-  background: #eef6ff;
+  color: var(--color-primary);
+  background: var(--color-active);
 }
 
 .preset-button--active {
@@ -170,7 +170,7 @@ function handleSliderInput(event: Event): void {
 
 .slider-value {
   width: 34px;
-  color: #475569;
+  color: var(--color-text-secondary);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   text-align: right;
@@ -186,14 +186,14 @@ function handleSliderInput(event: Event): void {
   border: 1px solid transparent;
   border-radius: 7px;
   background: transparent;
-  color: #94a3b8;
+  color: var(--color-text-muted);
   cursor: pointer;
 }
 
 .close-button:hover {
-  border-color: #dbe3ee;
-  background: #ffffff;
-  color: #475569;
+  border-color: var(--color-border);
+  background: var(--color-control-bg);
+  color: var(--color-text-secondary);
 }
 
 .sr-only {

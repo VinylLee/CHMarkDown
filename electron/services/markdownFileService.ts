@@ -77,12 +77,29 @@ function getDocumentDir(filePath: string): string {
   return path.dirname(path.resolve(filePath))
 }
 
-function ensureExternalImagesDir(fileDir: string): string {
-  const imagesDir = path.join(fileDir, 'images')
+function assertResourceDirectoryName(resourceDirectoryName: string): void {
+  if (
+    !resourceDirectoryName ||
+    resourceDirectoryName === '.' ||
+    resourceDirectoryName === '..' ||
+    path.basename(resourceDirectoryName) !== resourceDirectoryName
+  ) {
+    throw new Error('图片资源目录名称无效')
+  }
+}
+
+function ensureExternalImagesDir(fileDir: string, resourceDirectoryName: string): string {
+  assertResourceDirectoryName(resourceDirectoryName)
+  const imagesDir = path.join(fileDir, resourceDirectoryName)
   if (!existsSync(imagesDir)) {
     mkdirSync(imagesDir, { recursive: true })
   }
-  return imagesDir
+  const resolvedFileDir = realpathSync(fileDir)
+  const resolvedImagesDir = realpathSync(imagesDir)
+  if (!isSafeSubPath(resolvedFileDir, resolvedImagesDir) || !statSync(resolvedImagesDir).isDirectory()) {
+    throw new Error('图片资源目录必须位于 Markdown 文档目录内')
+  }
+  return resolvedImagesDir
 }
 
 function isSafeSubPath(baseDir: string, targetPath: string): boolean {
@@ -112,9 +129,13 @@ export function resolveExternalImagePath(fileDir: string, relativePath: string):
   }
 }
 
-export function copyImageToExternalDir(sourcePath: string, filePath: string): { absolutePath: string; relativePath: string } {
+export function copyImageToExternalDir(
+  sourcePath: string,
+  filePath: string,
+  resourceDirectoryName = 'images',
+): { absolutePath: string; relativePath: string } {
   const fileDir = getDocumentDir(filePath)
-  const imagesDir = ensureExternalImagesDir(fileDir)
+  const imagesDir = ensureExternalImagesDir(fileDir, resourceDirectoryName)
 
   const ext = path.extname(sourcePath) || '.png'
   const filename = `${crypto.randomUUID()}${ext}`
@@ -124,7 +145,7 @@ export function copyImageToExternalDir(sourcePath: string, filePath: string): { 
 
   return {
     absolutePath: destPath,
-    relativePath: `images/${filename}`,
+    relativePath: `${resourceDirectoryName}/${filename}`,
   }
 }
 
@@ -132,9 +153,10 @@ export function saveImageBufferToExternalDir(
   buffer: Buffer,
   mimeType: string,
   filePath: string,
+  resourceDirectoryName = 'images',
 ): { absolutePath: string; relativePath: string } {
   const fileDir = getDocumentDir(filePath)
-  const imagesDir = ensureExternalImagesDir(fileDir)
+  const imagesDir = ensureExternalImagesDir(fileDir, resourceDirectoryName)
 
   const extMap: Record<string, string> = {
     'image/png': '.png',
@@ -151,25 +173,27 @@ export function saveImageBufferToExternalDir(
 
   return {
     absolutePath: destPath,
-    relativePath: `images/${filename}`,
+    relativePath: `${resourceDirectoryName}/${filename}`,
   }
 }
 
 export function copyImagesDirForSaveAs(
   sourceFilePath: string,
   destFilePath: string,
+  resourceDirectoryName = 'images',
 ): string | null {
+  assertResourceDirectoryName(resourceDirectoryName)
   const sourceDir = getDocumentDir(sourceFilePath)
-  const sourceImagesDir = path.join(sourceDir, 'images')
+  const sourceImagesDir = path.join(sourceDir, resourceDirectoryName)
   if (!existsSync(sourceImagesDir)) return null
 
   const destDir = getDocumentDir(destFilePath)
-  const destImagesDir = path.join(destDir, 'images')
+  const destImagesDir = path.join(destDir, resourceDirectoryName)
   if (path.resolve(sourceImagesDir).toLowerCase() === path.resolve(destImagesDir).toLowerCase()) {
     return null
   }
   if (existsSync(destImagesDir)) {
-    throw new Error('目标位置已存在 images 文件夹，请选择其他目录以避免覆盖资源')
+    throw new Error(`目标位置已存在 ${resourceDirectoryName} 文件夹，请选择其他目录以避免覆盖资源`)
   }
 
   try {

@@ -100,7 +100,7 @@ defineExpose({ focus })
 .document-search {
   padding: 7px 14px;
   border-bottom: 1px solid var(--color-border);
-  background: #f7f9fc;
+  background: var(--color-surface-muted);
   flex-shrink: 0;
 }
 
@@ -121,6 +121,7 @@ defineExpose({ focus })
   border: 1px solid var(--color-border);
   border-radius: 5px;
   outline: none;
+  background: var(--color-control-bg);
   color: var(--color-text);
   font-size: 12px;
 }
@@ -143,7 +144,7 @@ defineExpose({ focus })
   min-height: 27px;
   border: 1px solid var(--color-border);
   border-radius: 5px;
-  background: #ffffff;
+  background: var(--color-control-bg);
   color: var(--color-text-secondary);
   cursor: pointer;
 }

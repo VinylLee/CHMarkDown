@@ -97,6 +97,26 @@ describe('markdownFileService', () => {
     expect(readFileSync(pasted.absolutePath, 'utf8')).toBe('pasted-image')
   })
 
+  it('uses the configured resource directory for new external images', () => {
+    const documentPath = path.join(testDirectory, 'document', 'note.md')
+    const sourceImage = path.join(testDirectory, 'source.png')
+    mkdirSync(path.dirname(documentPath), { recursive: true })
+    writeFileSync(documentPath, '# Note')
+    writeFileSync(sourceImage, 'selected-image')
+
+    const selected = copyImageToExternalDir(sourceImage, documentPath, 'assets')
+    const pasted = saveImageBufferToExternalDir(
+      Buffer.from('pasted-image'),
+      'image/png',
+      documentPath,
+      'assets',
+    )
+
+    expect(selected.relativePath).toMatch(/^assets\/[\w-]+\.png$/)
+    expect(pasted.relativePath).toMatch(/^assets\/[\w-]+\.png$/)
+    expect(path.dirname(selected.absolutePath)).toBe(path.join(path.dirname(documentPath), 'assets'))
+  })
+
   it('resolves encoded image paths inside the document directory only', () => {
     const documentDir = path.join(testDirectory, 'document')
     const imagesDir = path.join(documentDir, 'images')
@@ -141,5 +161,19 @@ describe('markdownFileService', () => {
       .toThrow('目标位置已存在 images 文件夹')
     expect(existsSync(path.join(destinationImages, 'photo.png'))).toBe(true)
     expect(readFileSync(path.join(destinationImages, 'photo.png'), 'utf8')).toBe('existing')
+  })
+
+  it('copies a configured resource directory during save as', () => {
+    const sourceDocument = path.join(testDirectory, 'source', 'note.md')
+    const destinationDocument = path.join(testDirectory, 'destination', 'copy.md')
+    const sourceAssets = path.join(path.dirname(sourceDocument), 'assets')
+    mkdirSync(sourceAssets, { recursive: true })
+    mkdirSync(path.dirname(destinationDocument), { recursive: true })
+    writeFileSync(path.join(sourceAssets, 'photo.png'), 'image')
+
+    copyImagesDirForSaveAs(sourceDocument, destinationDocument, 'assets')
+
+    expect(readFileSync(path.join(path.dirname(destinationDocument), 'assets', 'photo.png'), 'utf8'))
+      .toBe('image')
   })
 })

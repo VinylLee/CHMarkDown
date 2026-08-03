@@ -9,17 +9,11 @@
       </div>
 
       <div class="toolbar-actions">
-        <button class="btn-tool btn-tool--primary" @click="toggleEditingMode" :title="isEditing ? '切换为纯预览' : '切换为分栏编辑'">
-          <svg v-if="isEditing" width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5" />
-            <circle cx="6" cy="6" r="1.5" fill="currentColor" />
-          </svg>
-          <svg v-else width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path d="M2 9L5 2L8 9H2Z" stroke="currentColor" stroke-width="1.5" fill="currentColor" opacity="0.3" />
-            <rect x="1.5" y="9.5" width="9" height="1.5" rx="0.75" fill="currentColor" />
-          </svg>
-          {{ isEditing ? '预览模式' : '编辑' }}
-        </button>
+        <div class="mode-switch" aria-label="编辑器显示模式">
+          <button class="btn-tool" :class="{ 'btn-tool--active': editorMode === 'edit' }" @click="setEditorMode('edit')" title="仅显示 Markdown 编辑器">编辑</button>
+          <button class="btn-tool" :class="{ 'btn-tool--active': editorMode === 'split' }" @click="setEditorMode('split')" title="同时显示编辑与预览">分栏</button>
+          <button class="btn-tool" :class="{ 'btn-tool--active': editorMode === 'preview' }" @click="setEditorMode('preview')" title="仅显示 Markdown 预览">预览</button>
+        </div>
 
         <button class="btn-tool" :class="{ 'btn-tool--active': searchOpen && !replaceVisible }" @click="openSearch(false)" title="查找当前文档 (Ctrl+F)">
           查找
@@ -114,34 +108,29 @@
     </Transition>
 
     <div class="editor-workspace">
-      <!-- Split view: editing mode -->
-      <div v-if="isEditing" class="editor-body editor-body--split">
-      <div class="editor-pane editor-pane--edit">
+      <div class="editor-body" :class="`editor-body--${editorMode}`">
+      <div v-show="editorMode !== 'preview'" class="editor-pane editor-pane--edit">
         <div class="pane-label pane-label--preview">
           <span>Markdown</span>
           <span class="pane-hint">Ctrl+Click 定位</span>
         </div>
         
         <textarea ref="textareaRef" v-model="editContent" class="content-textarea"
+          :class="{ 'content-textarea--no-wrap': !settings.wordWrap }"
+          :style="editorTextStyle" :wrap="settings.wordWrap ? 'soft' : 'off'"
           placeholder="使用 Markdown 记录你的灵感…&#10;&#10;# 标题&#10;**加粗** *斜体*&#10;- 列表项&#10;> 引用&#10;`代码`&#10;&#10;支持 Ctrl+V 粘贴图片"
           @input="handleContentInput" @paste="handlePaste" @click="handleEditorClick"></textarea>
       </div>
 
-      <div class="editor-divider"></div>
+      <div v-if="editorMode === 'split'" class="editor-divider"></div>
 
-      <div class="editor-pane editor-pane--preview">
+      <div v-show="editorMode !== 'edit'" class="editor-pane editor-pane--preview">
         <div class="pane-label pane-label--preview">
           <span>预览</span>
           <span class="pane-hint">点击图片可调整大小</span>
         </div>
-        <div ref="previewRef" class="content-preview" v-html="renderedMarkdown" @click="handlePreviewClick"></div>
+        <div ref="previewRef" class="content-preview" :class="{ 'content-preview--full': editorMode === 'preview' }" v-html="renderedMarkdown" @click="handlePreviewClick"></div>
       </div>
-      </div>
-
-      <!-- Full-width preview: reading mode -->
-      <div v-else class="editor-body editor-body--preview">
-        <div ref="previewRef" class="content-preview content-preview--full" v-html="renderedMarkdown"
-          @click="handlePreviewClick"></div>
       </div>
 
       <DocumentOutline v-if="outlineOpen" :headings="outlineHeadings" @navigate="navigateToHeading" />
@@ -200,7 +189,7 @@ const ALLOWED_URI_REGEXP = /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|c
 const props = defineProps<{
   note: Note | null
   documentPath?: string | null
-  startInEditMode?: boolean
+  settings: AppSettings
   saveNote: (data: { id: string; title: string; content: string }) => Promise<boolean>
 }>()
 
@@ -211,7 +200,7 @@ const emit = defineEmits<{
 const editTitle = ref('')
 const editContent = ref('')
 const isDirty = ref(false)
-const isEditing = ref(false)
+const editorMode = ref<EditorMode>(props.settings.defaultEditorMode)
 const isSaving = ref(false)
 const selectedImageIndex = ref<number | null>(null)
 const extImageToken = ref<string | null>(null)
@@ -277,6 +266,15 @@ const currentMatchNumber = computed(() => {
   return Math.min(currentMatchIndex.value, searchMatches.value.length - 1) + 1
 })
 
+const isEditing = computed(() => editorMode.value !== 'preview')
+
+const editorTextStyle = computed(() => ({
+  fontFamily: props.settings.editorFontFamily === 'system-ui'
+    ? 'system-ui, sans-serif'
+    : `"${props.settings.editorFontFamily}", "Cascadia Code", Consolas, monospace`,
+  fontSize: `${props.settings.editorFontSize}px`,
+}))
+
 const outlineHeadings = computed(() => extractMarkdownHeadings(editContent.value))
 
 watch(
@@ -297,12 +295,12 @@ watch(
       editTitle.value = newNote.title
       editContent.value = newNote.content
       isDirty.value = false
-      isEditing.value = props.startInEditMode ?? false
+      editorMode.value = props.settings.defaultEditorMode
       selectedImageIndex.value = null
       editorSelection = null
       currentMatchIndex.value = 0
       replaceMessage.value = ''
-      if (props.startInEditMode) {
+      if (editorMode.value !== 'preview') {
         nextTick(() => textareaRef.value?.focus())
       }
     }
@@ -330,6 +328,13 @@ watch(
     }
   },
   { immediate: true }
+)
+
+watch(
+  () => props.settings.defaultEditorMode,
+  (mode) => {
+    if (props.note && editorMode.value !== mode) void setEditorMode(mode)
+  },
 )
 
 watch([searchQuery, caseSensitive, wholeWord], () => {
@@ -360,8 +365,7 @@ async function revealSearchMatch(index: number): Promise<void> {
   const match = matches[normalized]
 
   if (!isEditing.value) {
-    isEditing.value = true
-    await nextTick()
+    await setEditorMode('split')
   }
 
   const textarea = textareaRef.value
@@ -437,7 +441,7 @@ async function handleSearchShortcut(
   shortcutAction: Exclude<ReturnType<typeof resolveEditorShortcut>, null>,
   selection: DocumentSearchSelection | null,
 ): Promise<void> {
-  if (!isEditing.value) await toggleEditingMode()
+  if (!isEditing.value) await setEditorMode('split')
 
   if (selection) {
     await openSearchFromSelection(
@@ -513,32 +517,26 @@ function handleEditorClick(event: MouseEvent): void {
   scrollSync.highlightPreviewBlock(line)
 }
 
-async function toggleEditingMode(): Promise<void> {
-  if (isEditing.value) {
-    const textarea = textareaRef.value
-    const position = scrollSync.captureEditorPosition()
-    if (textarea) {
-      editorSelection = {
-        start: textarea.selectionStart,
-        end: textarea.selectionEnd,
-        direction: textarea.selectionDirection,
-      }
+async function setEditorMode(mode: EditorMode): Promise<void> {
+  if (editorMode.value === mode) return
+  const textarea = textareaRef.value
+  const position = editorMode.value === 'preview'
+    ? scrollSync.capturePreviewPosition()
+    : scrollSync.captureEditorPosition()
+  if (textarea && editorMode.value !== 'preview') {
+    editorSelection = {
+      start: textarea.selectionStart,
+      end: textarea.selectionEnd,
+      direction: textarea.selectionDirection,
     }
-
-    isEditing.value = false
-    await nextTick()
-    scrollSync.restorePreviewPosition(position)
-    return
   }
 
-  const position = scrollSync.capturePreviewPosition()
-  isEditing.value = true
+  editorMode.value = mode
   await nextTick()
-  scrollSync.restoreEditorPosition(position)
-  scrollSync.restorePreviewPosition(position)
+  if (mode !== 'preview') scrollSync.restoreEditorPosition(position)
+  if (mode !== 'edit') scrollSync.restorePreviewPosition(position)
 
-  const textarea = textareaRef.value
-  if (textarea && editorSelection) {
+  if (textarea && editorSelection && mode !== 'preview') {
     const contentLength = textarea.value.length
     textarea.setSelectionRange(
       Math.min(editorSelection.start, contentLength),
@@ -665,8 +663,7 @@ function insertAtCursor(text: string): void {
 
 async function handleInsertImage(): Promise<void> {
   if (!isEditing.value) {
-    isEditing.value = true
-    await nextTick()
+    await setEditorMode('split')
   }
 
   if (props.documentPath) {
@@ -849,7 +846,7 @@ watch(renderedMarkdown, () => {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background: #ffffff;
+  background: var(--color-surface);
 }
 
 /* ── Toolbar ── */
@@ -861,7 +858,7 @@ watch(renderedMarkdown, () => {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-  background: #fafbfc;
+  background: var(--color-surface-soft);
   flex-shrink: 0;
 }
 
@@ -903,7 +900,7 @@ watch(renderedMarkdown, () => {
 
 .input-title:focus {
   border-color: var(--color-border);
-  background: #ffffff;
+  background: var(--color-control-bg);
 }
 
 .input-title::placeholder {
@@ -919,11 +916,30 @@ watch(renderedMarkdown, () => {
   justify-content: flex-end;
 }
 
+.mode-switch {
+  display: flex;
+  align-items: center;
+}
+
+.mode-switch .btn-tool {
+  border-radius: 0;
+  margin-left: -1px;
+}
+
+.mode-switch .btn-tool:first-child {
+  margin-left: 0;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+.mode-switch .btn-tool:last-child {
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
 .btn-tool {
   padding: 5px 9px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
-  background: #ffffff;
+  background: var(--color-control-bg);
   color: var(--color-text-secondary);
   font-size: 11px;
   cursor: pointer;
@@ -936,7 +952,7 @@ watch(renderedMarkdown, () => {
 }
 
 .btn-tool:hover {
-  border-color: #c0c7d0;
+  border-color: var(--color-text-muted);
   color: var(--color-text);
 }
 
@@ -1029,7 +1045,7 @@ watch(renderedMarkdown, () => {
   color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.8px;
-  background: #fafbfc;
+  background: var(--color-surface-soft);
   border-bottom: 1px solid var(--color-border);
   user-select: none;
 }
@@ -1042,7 +1058,7 @@ watch(renderedMarkdown, () => {
 }
 
 .pane-hint {
-  color: #b1bac7;
+  color: var(--color-text-muted);
   font-size: 9px;
   font-weight: 500;
   letter-spacing: 0;
@@ -1067,12 +1083,18 @@ watch(renderedMarkdown, () => {
   font-size: 13.5px;
   line-height: 1.85;
   color: var(--color-text);
-  background: #ffffff;
+  background: var(--color-surface);
   tab-size: 2;
 }
 
+.content-textarea--no-wrap {
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+}
+
 .content-textarea::placeholder {
-  color: #d0d5dd;
+  color: var(--color-text-muted);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
   font-size: 12.5px;
   line-height: 2;
@@ -1087,6 +1109,7 @@ watch(renderedMarkdown, () => {
   line-height: 1.85;
   color: var(--color-text);
   font-size: 14px;
+  background: var(--color-surface);
 }
 
 .content-preview--full {
@@ -1100,21 +1123,21 @@ watch(renderedMarkdown, () => {
   font-size: 1.6em;
   font-weight: 700;
   margin: 0.8em 0 0.4em;
-  color: #111827;
+  color: var(--color-heading);
 }
 
 .content-preview :deep(h2) {
   font-size: 1.3em;
   font-weight: 600;
   margin: 0.7em 0 0.3em;
-  color: #1f2937;
+  color: var(--color-text);
 }
 
 .content-preview :deep(h3) {
   font-size: 1.1em;
   font-weight: 600;
   margin: 0.6em 0 0.25em;
-  color: #374151;
+  color: var(--color-text-secondary);
 }
 
 .content-preview :deep(p) {
@@ -1125,18 +1148,18 @@ watch(renderedMarkdown, () => {
   border-left: 3px solid var(--color-primary);
   padding: 4px 16px;
   margin: 0.6em 0;
-  color: #4b5563;
-  background: #f9fafb;
+  color: var(--color-quote-text);
+  background: var(--color-quote-bg);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
 .content-preview :deep(code) {
-  background: #f3f4f6;
+  background: var(--color-code-bg);
   padding: 2px 6px;
   border-radius: 3px;
   font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
   font-size: 0.88em;
-  color: #e11d48;
+  color: var(--color-code-text);
 }
 
 .content-preview :deep(pre) {
@@ -1184,8 +1207,8 @@ watch(renderedMarkdown, () => {
   display: inline-block;
   min-width: 120px;
   min-height: 50px;
-  background: #f1f5f9;
-  border: 1px dashed #cbd5e1;
+  background: var(--color-surface-soft);
+  border: 1px dashed var(--color-border);
   border-radius: var(--radius-sm);
   box-shadow: none;
   position: relative;
@@ -1197,7 +1220,7 @@ watch(renderedMarkdown, () => {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  color: #94a3b8;
+  color: var(--color-text-muted);
   font-size: 11px;
   white-space: nowrap;
 }
@@ -1241,7 +1264,7 @@ watch(renderedMarkdown, () => {
 }
 
 .content-preview :deep(th) {
-  background: #f9fafb;
+  background: var(--color-surface-soft);
   font-weight: 600;
 }
 
@@ -1280,7 +1303,7 @@ watch(renderedMarkdown, () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #ffffff;
+  background: var(--color-surface);
 }
 
 .empty-content {

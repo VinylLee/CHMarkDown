@@ -9,7 +9,25 @@ export interface Note {
 }
 
 export type CreateNoteInput = Pick<Note, 'title' | 'content'>
-export type FileCommand = 'open' | 'save' | 'save-as'
+export type FileCommand = 'open' | 'save' | 'save-as' | 'settings'
+export type ThemePreference = 'light' | 'dark' | 'system'
+export type EditorMode = 'edit' | 'split' | 'preview'
+export type EditorFontFamily = 'Cascadia Code' | 'Consolas' | 'Microsoft YaHei' | 'system-ui'
+
+export interface AppSettings {
+  version: 1
+  theme: ThemePreference
+  editorFontFamily: EditorFontFamily
+  editorFontSize: number
+  defaultEditorMode: EditorMode
+  wordWrap: boolean
+  imageDirectoryName: string
+}
+
+export interface SettingsLoadResult {
+  settings: AppSettings
+  warning: string | null
+}
 
 export interface MarkdownFileDocument {
   filePath: string
@@ -89,6 +107,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     get: (): Promise<SessionState> => ipcRenderer.invoke('session:get'),
     save: (state: SessionState): Promise<SessionState> =>
       ipcRenderer.invoke('session:save', state),
+  },
+  settings: {
+    get: (): Promise<SettingsLoadResult> => ipcRenderer.invoke('settings:get'),
+    save: (settings: AppSettings): Promise<AppSettings> =>
+      ipcRenderer.invoke('settings:save', settings),
   },
   notes: {
     getAll: (): Promise<Note[]> => ipcRenderer.invoke('notes:getAll'),

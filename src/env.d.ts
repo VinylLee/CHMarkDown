@@ -15,7 +15,25 @@ interface Note {
 }
 
 type CreateNoteInput = Pick<Note, 'title' | 'content'>
-type FileCommand = 'open' | 'save' | 'save-as'
+type FileCommand = 'open' | 'save' | 'save-as' | 'settings'
+type ThemePreference = 'light' | 'dark' | 'system'
+type EditorMode = 'edit' | 'split' | 'preview'
+type EditorFontFamily = 'Cascadia Code' | 'Consolas' | 'Microsoft YaHei' | 'system-ui'
+
+interface AppSettings {
+  version: 1
+  theme: ThemePreference
+  editorFontFamily: EditorFontFamily
+  editorFontSize: number
+  defaultEditorMode: EditorMode
+  wordWrap: boolean
+  imageDirectoryName: string
+}
+
+interface SettingsLoadResult {
+  settings: AppSettings
+  warning: string | null
+}
 
 interface MarkdownFileDocument {
   filePath: string
@@ -72,6 +90,10 @@ interface Window {
     session: {
       get: () => Promise<SessionState>
       save: (state: SessionState) => Promise<SessionState>
+    }
+    settings: {
+      get: () => Promise<SettingsLoadResult>
+      save: (settings: AppSettings) => Promise<AppSettings>
     }
     notes: {
       getAll: () => Promise<Note[]>

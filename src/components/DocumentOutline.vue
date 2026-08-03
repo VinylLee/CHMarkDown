@@ -36,7 +36,7 @@ defineEmits<{ navigate: [line: number] }>()
   display: flex;
   flex-direction: column;
   border-left: 1px solid var(--color-border);
-  background: #fafbfc;
+  background: var(--color-surface-soft);
   overflow: hidden;
   flex-shrink: 0;
 }
@@ -81,7 +81,7 @@ defineEmits<{ navigate: [line: number] }>()
 }
 
 .outline-item:hover {
-  background: #edf3fb;
+  background: var(--color-active);
   color: var(--color-primary);
 }
 

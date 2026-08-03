@@ -25,6 +25,17 @@
           <span class="notelist-shortcut">Ctrl+B</span>
           <span class="panel-count" v-if="documentCount > 0">{{ documentCount }}</span>
           <button
+            class="notelist-settings-btn"
+            title="编辑器偏好设置"
+            aria-label="打开编辑器偏好设置"
+            @click="$emit('settings')"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <circle cx="6" cy="6" r="2" stroke="currentColor" stroke-width="1.2" />
+              <path d="M6 1.5V2.5M6 9.5V10.5M1.5 6H2.5M9.5 6H10.5M2.8 2.8L3.5 3.5M8.5 8.5L9.2 9.2M9.2 2.8L8.5 3.5M3.5 8.5L2.8 9.2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+            </svg>
+          </button>
+          <button
             class="notelist-collapse-btn"
             @click="panel.collapse()"
             title="折叠笔记列表 (Ctrl+B)"
@@ -149,6 +160,7 @@ defineEmits<{
   openRecent: [filePath: string]
   removeRecent: [filePath: string]
   clearRecent: []
+  settings: []
 }>()
 
 interface DocumentListItem {
@@ -220,7 +232,7 @@ function formatTime(isoStr: string): string {
 .note-list-panel {
   width: 260px;
   min-width: 0;
-  background: #f8f9fb;
+  background: var(--color-surface-muted);
   border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
@@ -303,7 +315,8 @@ function formatTime(isoStr: string): string {
 }
 
 /* Collapse toggle button */
-.notelist-collapse-btn {
+.notelist-collapse-btn,
+.notelist-settings-btn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -318,7 +331,8 @@ function formatTime(isoStr: string): string {
   flex-shrink: 0;
 }
 
-.notelist-collapse-btn:hover {
+.notelist-collapse-btn:hover,
+.notelist-settings-btn:hover {
   background: var(--color-primary);
   border-color: var(--color-primary);
   color: #ffffff;
@@ -358,7 +372,7 @@ function formatTime(isoStr: string): string {
   gap: 6px;
   margin: 10px 12px;
   padding: 8px 0;
-  border: 1px dashed #d0d5dd;
+  border: 1px dashed var(--color-border);
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-text-secondary);
@@ -407,7 +421,7 @@ function formatTime(isoStr: string): string {
 
 .recent-empty {
   padding: 4px 2px 1px;
-  color: #b0b7c3;
+  color: var(--color-text-muted);
   font-size: 10px;
 }
 
@@ -426,7 +440,7 @@ function formatTime(isoStr: string): string {
 }
 
 .recent-file-item:hover {
-  background: #eef1f5;
+  background: var(--color-hover);
 }
 
 .recent-file-text {
@@ -450,7 +464,7 @@ function formatTime(isoStr: string): string {
 }
 
 .recent-file-path {
-  color: #b0b7c3;
+  color: var(--color-text-muted);
   font-size: 9px;
 }
 
@@ -506,17 +520,17 @@ function formatTime(isoStr: string): string {
 .note-item {
   padding: 11px 14px;
   cursor: pointer;
-  border-bottom: 1px solid #f0f2f5;
+  border-bottom: 1px solid var(--color-border);
   transition: background-color var(--transition);
   border-left: 3px solid transparent;
 }
 
 .note-item:hover {
-  background-color: #f0f2f5;
+  background-color: var(--color-hover);
 }
 
 .note-item--active {
-  background-color: #eaf2fd;
+  background-color: var(--color-active);
   border-left-color: var(--color-primary);
 }
 
@@ -598,7 +612,7 @@ function formatTime(isoStr: string): string {
 
 .note-item-preview {
   font-size: 11px;
-  color: #b0b7c3;
+  color: var(--color-text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

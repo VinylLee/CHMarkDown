@@ -101,7 +101,7 @@ onUnmounted(() => {
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(20, 22, 33, 0.46);
+  background: var(--color-overlay);
   backdrop-filter: blur(2px);
 }
 
@@ -109,9 +109,9 @@ onUnmounted(() => {
   position: relative;
   width: min(430px, 100%);
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  background: #ffffff;
+  background: var(--color-surface);
   box-shadow:
     0 24px 70px rgba(17, 24, 39, 0.24),
     0 3px 12px rgba(17, 24, 39, 0.1);
@@ -176,7 +176,7 @@ onUnmounted(() => {
   gap: 8px;
   padding: 14px 20px;
   border-top: 1px solid var(--color-border);
-  background: #fafbfc;
+  background: var(--color-surface-soft);
 }
 
 .confirm-actions-spacer {
@@ -222,12 +222,12 @@ onUnmounted(() => {
 
 .confirm-btn--cancel {
   border-color: var(--color-border);
-  background: #ffffff;
+  background: var(--color-control-bg);
   color: var(--color-text-secondary);
 }
 
 .confirm-btn--cancel:hover {
-  border-color: #c9d0d9;
+  border-color: var(--color-text-muted);
   color: var(--color-text);
 }
 

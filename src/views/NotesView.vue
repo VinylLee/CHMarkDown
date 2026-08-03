@@ -18,14 +18,22 @@
       @open-recent="queueOpenFilePath($event, 'recent')"
       @remove-recent="handleRemoveRecent"
       @clear-recent="handleClearRecent"
+      @settings="settingsOpen = true"
     />
     <NoteEditor
       ref="noteEditorRef"
       :note="activeDocument"
       :document-path="activeExternalFile?.filePath ?? null"
-      :startInEditMode="startInEditMode"
+      :settings="settings"
       :save-note="handleSave"
       @delete="handleDelete"
+    />
+    <SettingsDialog
+      :open="settingsOpen"
+      :settings="settings"
+      :saving="settingsSaving"
+      @close="settingsOpen = false"
+      @save="handleSaveSettings"
     />
     <div v-if="isDraggingFile" class="file-drop-overlay">
       <div class="file-drop-card">
@@ -41,6 +49,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import NoteList from '../components/NoteList.vue'
 import NoteEditor from '../components/NoteEditor.vue'
+import SettingsDialog from '../components/SettingsDialog.vue'
 import { useConfirm } from '../composables/useConfirm'
 import { useToast } from '../composables/useToast'
 import { useNoteListPanel } from '../composables/useNoteListPanel'
@@ -55,20 +64,23 @@ import {
 } from '../utils/openMarkdownFiles'
 import type { OpenMarkdownFile } from '../utils/openMarkdownFiles'
 import { createSessionState, restoreSessionState } from '../utils/sessionState'
+import { useAppSettings } from '../composables/useAppSettings'
 
 const notes = ref<Note[]>([])
 const selectedId = ref<string | null>(null)
 const externalFiles = ref<OpenMarkdownFile[]>([])
 const recentFiles = ref<RecentFile[]>([])
 const documentOrder = ref<string[]>([])
-const startInEditMode = ref(false)
 const isDraggingFile = ref(false)
+const settingsOpen = ref(false)
+const settingsSaving = ref(false)
 const loading = ref(true)
 const error = ref('')
 const { show } = useToast()
 const { requestConfirm } = useConfirm()
 const noteListPanel = useNoteListPanel()
 const noteEditorRef = ref<InstanceType<typeof NoteEditor> | null>(null)
+const { settings, saveSettings } = useAppSettings()
 let unregisterCloseGuard: (() => void) | null = null
 let removeFileCommandListener: (() => void) | null = null
 let removeOpenFileRequestListener: (() => void) | null = null
@@ -122,7 +134,6 @@ async function canLeaveCurrentNote(reason: 'navigate' | 'close' = 'navigate'): P
 async function trySelectDocument(id: string): Promise<void> {
   if (id === selectedId.value) return
   if (!(await canLeaveCurrentNote())) return
-  startInEditMode.value = false
   selectedId.value = id
 }
 
@@ -151,7 +162,6 @@ function replaceDocumentInOrder(previousId: string | null, nextId: string): void
 
 async function tryCreateNote(): Promise<void> {
   if (!(await canLeaveCurrentNote())) return
-  startInEditMode.value = true
   const created = await createNote()
   if (created) selectedId.value = created.id
 }
@@ -297,7 +307,6 @@ async function handleOpenFile(): Promise<void> {
 }
 
 async function activateOpenedFile(openedFile: MarkdownFileDocument): Promise<void> {
-  startInEditMode.value = true
   externalFiles.value = upsertOpenMarkdownFile(externalFiles.value, openedFile)
   const openedId = createOpenMarkdownFile(openedFile).id
   moveDocumentToFront(openedId)
@@ -422,7 +431,6 @@ async function handleSaveAs(): Promise<void> {
     const savedId = createOpenMarkdownFile(savedFile).id
     replaceDocumentInOrder(previousExternalId, savedId)
     selectedId.value = savedId
-    startInEditMode.value = true
     await recordRecentFile(savedFile.filePath)
     show(`已另存为 ${savedFile.fileName}`)
   } catch (err) {
@@ -433,6 +441,10 @@ async function handleSaveAs(): Promise<void> {
 }
 
 async function handleFileCommand(command: FileCommand): Promise<void> {
+  if (command === 'settings') {
+    settingsOpen.value = true
+    return
+  }
   if (command === 'open') {
     await handleOpenFile()
     return
@@ -448,6 +460,20 @@ async function handleFileCommand(command: FileCommand): Promise<void> {
     return
   }
   await editor.save()
+}
+
+async function handleSaveSettings(nextSettings: AppSettings): Promise<void> {
+  settingsSaving.value = true
+  try {
+    await saveSettings(nextSettings)
+    settingsOpen.value = false
+    show('偏好设置已保存')
+  } catch (err) {
+    show('保存偏好设置失败，请检查本地数据目录权限。', 'error')
+    console.error('Failed to save app settings:', err)
+  } finally {
+    settingsSaving.value = false
+  }
 }
 
 function selectFallbackDocument(excludedId: string): void {
@@ -580,7 +606,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(243, 248, 255, 0.88);
+  background: var(--color-drop-overlay);
   border: 2px dashed var(--color-primary);
   pointer-events: none;
 }
@@ -592,7 +618,7 @@ onUnmounted(() => {
   gap: 6px;
   padding: 28px 36px;
   border-radius: var(--radius-lg);
-  background: #ffffff;
+  background: var(--color-surface);
   color: var(--color-text-secondary);
   box-shadow: var(--shadow-md);
 }

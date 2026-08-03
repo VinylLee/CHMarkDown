@@ -29,6 +29,7 @@ import {
   removeRecentFile,
 } from './services/recentFileService'
 import { readSessionState, writeSessionState } from './services/sessionService'
+import { readAppSettings, writeAppSettings } from './services/settingsService'
 import {
   prepareDocumentExport,
   writeDocumentExport,
@@ -59,6 +60,14 @@ function getRecentFilesPath(): string {
 
 function getSessionStatePath(): string {
   return path.join(app.getPath('userData'), 'session.json')
+}
+
+function getSettingsPath(): string {
+  return path.join(app.getPath('userData'), 'settings.json')
+}
+
+function getImageDirectoryName(): string {
+  return readAppSettings(getSettingsPath()).settings.imageDirectoryName
 }
 
 function focusMainWindow(): void {
@@ -92,7 +101,7 @@ function requestMainWindowClose(): void {
   }
 }
 
-function sendFileCommand(command: 'open' | 'save' | 'save-as'): void {
+function sendFileCommand(command: 'open' | 'save' | 'save-as' | 'settings'): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('app:file-command', command)
   }
@@ -123,6 +132,11 @@ function installApplicationMenu(): void {
           label: '另存为…',
           accelerator: 'Ctrl+Shift+S',
           click: () => sendFileCommand('save-as'),
+        },
+        { type: 'separator' },
+        {
+          label: '偏好设置…',
+          click: () => sendFileCommand('settings'),
         },
         { type: 'separator' },
         {
@@ -279,6 +293,14 @@ function registerIpcHandlers(): void {
     return writeSessionState(getSessionStatePath(), state)
   })
 
+  ipcMain.handle('settings:get', () => {
+    return readAppSettings(getSettingsPath())
+  })
+
+  ipcMain.handle('settings:save', (_event, settings: unknown) => {
+    return writeAppSettings(getSettingsPath(), settings)
+  })
+
   ipcMain.handle('files:saveMarkdown', (_event, filePath: string, content: string) => {
     return writeMarkdownFile(filePath, content)
   })
@@ -304,7 +326,7 @@ function registerIpcHandlers(): void {
       }
       const destinationPath = path.resolve(result.filePath)
       const copiedImagesDir = sourceFilePath
-        ? copyImagesDirForSaveAs(sourceFilePath, destinationPath)
+        ? copyImagesDirForSaveAs(sourceFilePath, destinationPath, getImageDirectoryName())
         : null
       try {
         return writeMarkdownFile(destinationPath, content)
@@ -375,12 +397,21 @@ function registerIpcHandlers(): void {
     if (result.canceled || result.filePaths.length === 0) {
       return null
     }
-    const copied = copyImageToExternalDir(result.filePaths[0], filePath)
+    const copied = copyImageToExternalDir(
+      result.filePaths[0],
+      filePath,
+      getImageDirectoryName(),
+    )
     return copied.relativePath
   })
 
   ipcMain.handle('ext-files:pasteImage', (_event, filePath: string, buffer: ArrayBuffer, mimeType: string) => {
-    const copied = saveImageBufferToExternalDir(Buffer.from(buffer), mimeType, filePath)
+    const copied = saveImageBufferToExternalDir(
+      Buffer.from(buffer),
+      mimeType,
+      filePath,
+      getImageDirectoryName(),
+    )
     return copied.relativePath
   })
 
