@@ -1,6 +1,6 @@
 # CHMarkDown
 
-CHMarkDown 是一个 Windows 本地 Markdown 编辑与笔记工具。内容和插入的图片都保存在本机，不需要账号或网络服务。
+CHMarkDown 是一个 Windows 本地 Markdown 编辑与笔记工具。特点是可以插入图片，导出压缩包。内容和插入的图片都保存在本机，不需要账号或网络服务。
 
 当前稳定版：**1.0.1**。详细变化见 [更新日志](CHANGELOG.md)。
 
