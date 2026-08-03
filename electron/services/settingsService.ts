@@ -13,6 +13,7 @@ export interface AppSettings {
   defaultEditorMode: EditorMode
   wordWrap: boolean
   imageDirectoryName: string
+  showTrayIcon: boolean
 }
 
 export interface SettingsLoadResult {
@@ -28,6 +29,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   defaultEditorMode: 'split',
   wordWrap: true,
   imageDirectoryName: 'images',
+  showTrayIcon: true,
 }
 
 const THEMES = new Set<ThemePreference>(['light', 'dark', 'system'])
@@ -77,7 +79,8 @@ export function normalizeAppSettings(value: unknown): AppSettings {
     (candidate.editorFontSize as number) < 12 ||
     (candidate.editorFontSize as number) > 24 ||
     !EDITOR_MODES.has(candidate.defaultEditorMode as EditorMode) ||
-    typeof candidate.wordWrap !== 'boolean'
+    typeof candidate.wordWrap !== 'boolean' ||
+    (candidate.showTrayIcon !== undefined && typeof candidate.showTrayIcon !== 'boolean')
   ) {
     throw new Error('设置格式无效')
   }
@@ -90,6 +93,7 @@ export function normalizeAppSettings(value: unknown): AppSettings {
     defaultEditorMode: candidate.defaultEditorMode as EditorMode,
     wordWrap: candidate.wordWrap,
     imageDirectoryName: normalizeImageDirectoryName(candidate.imageDirectoryName),
+    showTrayIcon: candidate.showTrayIcon === undefined ? true : candidate.showTrayIcon,
   }
 }
 

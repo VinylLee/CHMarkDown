@@ -41,6 +41,7 @@ describe('settingsService', () => {
       defaultEditorMode: 'preview',
       wordWrap: false,
       imageDirectoryName: 'assets',
+      showTrayIcon: false,
     })
 
     expect(readAppSettings(storagePath)).toEqual({ settings, warning: null })
@@ -53,6 +54,13 @@ describe('settingsService', () => {
     const result = readAppSettings(storagePath)
     expect(result.settings).toEqual(DEFAULT_APP_SETTINGS)
     expect(result.warning).toContain('已恢复安全默认值')
+  })
+
+  it('enables the tray when migrating settings saved by v0.6.0', () => {
+    const legacySettings = { ...DEFAULT_APP_SETTINGS } as Partial<typeof DEFAULT_APP_SETTINGS>
+    delete legacySettings.showTrayIcon
+
+    expect(normalizeAppSettings(legacySettings).showTrayIcon).toBe(true)
   })
 
   it('rejects out-of-range and unknown preference values', () => {

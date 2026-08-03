@@ -28,6 +28,7 @@ interface AppSettings {
   defaultEditorMode: EditorMode
   wordWrap: boolean
   imageDirectoryName: string
+  showTrayIcon: boolean
 }
 
 interface SettingsLoadResult {

@@ -5,6 +5,7 @@ export interface CloseEventLike {
 interface WindowCloseCoordinatorOptions {
   requestCloseCheck: (requestId: number) => void
   closeWindow: () => void
+  onDecision?: (allowClose: boolean) => void
 }
 
 export function createWindowCloseCoordinator(options: WindowCloseCoordinatorOptions) {
@@ -30,6 +31,7 @@ export function createWindowCloseCoordinator(options: WindowCloseCoordinatorOpti
     if (requestId !== pendingRequestId) return
 
     pendingRequestId = null
+    options.onDecision?.(allowClose)
     if (!allowClose) return
 
     allowNextClose = true

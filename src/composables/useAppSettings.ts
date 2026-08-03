@@ -8,6 +8,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   defaultEditorMode: 'split',
   wordWrap: true,
   imageDirectoryName: 'images',
+  showTrayIcon: true,
 }
 
 const settings = reactive<AppSettings>({ ...DEFAULT_APP_SETTINGS })

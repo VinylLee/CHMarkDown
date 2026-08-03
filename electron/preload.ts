@@ -22,6 +22,7 @@ export interface AppSettings {
   defaultEditorMode: EditorMode
   wordWrap: boolean
   imageDirectoryName: string
+  showTrayIcon: boolean
 }
 
 export interface SettingsLoadResult {

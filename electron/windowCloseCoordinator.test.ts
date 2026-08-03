@@ -20,27 +20,33 @@ describe('window close coordinator', () => {
 
   it('keeps the window open when the renderer cancels', () => {
     const closeWindow = vi.fn()
+    const onDecision = vi.fn()
     const coordinator = createWindowCloseCoordinator({
       requestCloseCheck: vi.fn(),
       closeWindow,
+      onDecision,
     })
 
     coordinator.handleClose({ preventDefault: vi.fn() })
     coordinator.handleDecision(1, false)
 
     expect(closeWindow).not.toHaveBeenCalled()
+    expect(onDecision).toHaveBeenCalledWith(false)
   })
 
   it('allows exactly one follow-up close after renderer approval', () => {
     const closeWindow = vi.fn()
+    const onDecision = vi.fn()
     const coordinator = createWindowCloseCoordinator({
       requestCloseCheck: vi.fn(),
       closeWindow,
+      onDecision,
     })
 
     coordinator.handleClose({ preventDefault: vi.fn() })
     coordinator.handleDecision(1, true)
     expect(closeWindow).toHaveBeenCalledOnce()
+    expect(onDecision).toHaveBeenCalledWith(true)
 
     const approvedEvent = { preventDefault: vi.fn() }
     coordinator.handleClose(approvedEvent)

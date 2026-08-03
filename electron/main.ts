@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol, net, Menu } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, protocol, net, Menu, Tray } from 'electron'
 import type { MenuItemConstructorOptions } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -36,6 +36,7 @@ import {
 } from './services/documentExportService'
 import type { DocumentExportInput } from './services/documentExportService'
 import { extractMarkdownFilePath } from './fileOpenRequest'
+import { resolveWindowCloseAction } from './windowClosePolicy'
 
 const APP_NAME = 'CHMarkDown'
 const APP_USER_MODEL_ID = 'com.chmarkdown.desktop'
@@ -46,8 +47,11 @@ if (process.platform === 'win32') {
 }
 
 let mainWindow: BrowserWindow | null = null
+let tray: Tray | null = null
 let mainWindowCloseCoordinator: ReturnType<typeof createWindowCloseCoordinator> | null = null
 let rendererReady = false
+let isQuitting = false
+let systemSessionEnding = false
 const pendingOpenPaths: string[] = []
 const extDirTokens = new Map<string, string>()
 const PREVIEW_IMAGE_EXTENSIONS = new Set([
@@ -101,6 +105,16 @@ function requestMainWindowClose(): void {
   }
 }
 
+function requestApplicationExit(): void {
+  isQuitting = true
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    focusMainWindow()
+    mainWindow.close()
+    return
+  }
+  app.quit()
+}
+
 function sendFileCommand(command: 'open' | 'save' | 'save-as' | 'settings'): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('app:file-command', command)
@@ -111,6 +125,40 @@ function getWindowIconPath(): string {
   return app.isPackaged
     ? path.join(process.resourcesPath, 'chmarkdown.ico')
     : path.join(__dirname, '../resources/chmarkdown.ico')
+}
+
+function syncTrayIcon(showTrayIcon: boolean): void {
+  if (!showTrayIcon) {
+    tray?.destroy()
+    tray = null
+    return
+  }
+  if (tray && !tray.isDestroyed()) return
+
+  try {
+    const nextTray = new Tray(getWindowIconPath())
+    nextTray.setToolTip(APP_NAME)
+    nextTray.setContextMenu(Menu.buildFromTemplate([
+      {
+        label: '打开 CHMarkDown',
+        click: focusMainWindow,
+      },
+      { type: 'separator' },
+      {
+        label: '退出',
+        click: requestApplicationExit,
+      },
+    ]))
+    nextTray.on('click', focusMainWindow)
+    tray = nextTray
+  } catch (error) {
+    tray = null
+    console.error('Failed to create tray icon:', error)
+    dialog.showErrorBox(
+      '系统托盘不可用',
+      '无法创建 CHMarkDown 托盘图标。为避免窗口无法恢复，关闭窗口时应用将正常退出。',
+    )
+  }
 }
 
 function installApplicationMenu(): void {
@@ -142,7 +190,7 @@ function installApplicationMenu(): void {
         {
           label: '退出',
           accelerator: 'Alt+F4',
-          click: requestMainWindowClose,
+          click: requestApplicationExit,
         },
       ],
     },
@@ -298,7 +346,9 @@ function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('settings:save', (_event, settings: unknown) => {
-    return writeAppSettings(getSettingsPath(), settings)
+    const saved = writeAppSettings(getSettingsPath(), settings)
+    syncTrayIcon(saved.showTrayIcon)
+    return saved
   })
 
   ipcMain.handle('files:saveMarkdown', (_event, filePath: string, content: string) => {
@@ -458,6 +508,7 @@ function registerIpcHandlers(): void {
 }
 
 function createWindow(): void {
+  systemSessionEnding = false
   const window = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -485,14 +536,32 @@ function createWindow(): void {
         window.close()
       }
     },
+    onDecision: (allowClose) => {
+      if (!allowClose) isQuitting = false
+    },
   })
 
   window.webContents.on('render-process-gone', () => {
     rendererReady = false
     mainWindowCloseCoordinator?.cancelPendingRequest()
   })
+  window.on('query-session-end', () => {
+    systemSessionEnding = true
+    isQuitting = true
+  })
   window.on('close', (event) => {
-    if (rendererReady) {
+    const action = resolveWindowCloseAction({
+      systemSessionEnding,
+      quitting: isQuitting,
+      trayAvailable: Boolean(tray && !tray.isDestroyed()),
+      rendererReady,
+    })
+    if (action === 'hide') {
+      event.preventDefault()
+      window.hide()
+      return
+    }
+    if (action === 'confirm') {
       mainWindowCloseCoordinator?.handleClose(event)
     }
   })
@@ -531,6 +600,7 @@ if (!hasSingleInstanceLock) {
     registerProtocol()
     registerIpcHandlers()
     installApplicationMenu()
+    syncTrayIcon(readAppSettings(getSettingsPath()).settings.showTrayIcon)
     createWindow()
 
     const initialFilePath = extractMarkdownFilePath(process.argv)
@@ -545,6 +615,10 @@ if (!hasSingleInstanceLock) {
     })
   })
 }
+
+app.on('before-quit', () => {
+  isQuitting = true
+})
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
