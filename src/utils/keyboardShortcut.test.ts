@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   isNoteListToggleShortcut,
   matchesPrimaryShortcut,
+  resolveEditorHistoryShortcut,
   resolveEditorShortcut,
 } from './keyboardShortcut'
 
@@ -46,5 +47,12 @@ describe('matchesPrimaryShortcut', () => {
   it('uses Ctrl+B but not Ctrl+Shift+B for the document list', () => {
     expect(isNoteListToggleShortcut(shortcut('b'))).toBe(true)
     expect(isNoteListToggleShortcut(shortcut('b', { shiftKey: true }))).toBe(false)
+  })
+
+  it('maps Ctrl+Z and Ctrl+Y to editor history actions', () => {
+    expect(resolveEditorHistoryShortcut(shortcut('z'))).toBe('undo')
+    expect(resolveEditorHistoryShortcut(shortcut('Y'))).toBe('redo')
+    expect(resolveEditorHistoryShortcut(shortcut('z', { shiftKey: true }))).toBeNull()
+    expect(resolveEditorHistoryShortcut(shortcut('y', { altKey: true }))).toBeNull()
   })
 })

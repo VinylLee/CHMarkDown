@@ -74,6 +74,7 @@ interface Window {
       onOpenFileRequested: (callback: (filePath: string) => void) => () => void
     }
     files: {
+      getPathForFile: (file: File) => string
       openMarkdown: () => Promise<MarkdownFileDocument | null>
       openMarkdownPath: (filePath: string) => Promise<MarkdownFileDocument>
       getRecent: () => Promise<RecentFile[]>

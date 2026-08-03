@@ -396,7 +396,8 @@ function handleDrop(event: DragEvent): void {
   dragDepth = 0
   isDraggingFile.value = false
   const result = getDroppedMarkdownFilePath(
-    Array.from(event.dataTransfer?.files ?? []) as Array<File & { path?: string }>,
+    Array.from(event.dataTransfer?.files ?? []),
+    (file) => window.electronAPI.files.getPathForFile(file),
   )
   if (result.status === 'unsupported') {
     show('仅支持拖入 .md 或 .markdown 文件。', 'error')

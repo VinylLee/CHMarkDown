@@ -162,7 +162,9 @@ v0.2.1 实测数据：
 - 单条记录包含规范化绝对路径、文件名和最后打开时间，最多保存 12 条
 - Windows 路径比较忽略大小写；重复打开会更新时间并移动到列表顶部
 - 最近记录只在文件已成功读取且用户允许离开当前文档后更新
-- 拖放事件只从 Electron 提供的 `File.path` 取得路径，实际读取继续通过 preload 和 IPC
+- 最近文件区域折叠状态保存到 `localStorage` 的 `chmarkdown:recent-files:collapsed`，不改变 `recent-files.json`
+- 拖放文件路径由 preload 调用 Electron `webUtils.getPathForFile(file)` 取得；不再读取 Electron 32 已移除的 `File.path`
+- `webUtils` 只通过受限的 `getPathForFile` 包装暴露，继续保持 `contextIsolation: true` 和 `nodeIntegration: false`
 - 主进程从首次启动参数和 `second-instance` 参数中筛选 `.md` / `.markdown` 路径
 - `requestSingleInstanceLock` 保证“打开方式”复用现有窗口；渲染进程未就绪时路径进入内存队列
 - 单实例锁在应用就绪前获取；获取失败的后续进程立即调用 `app.quit()`，不创建 BrowserWindow
@@ -208,6 +210,7 @@ v0.2.1 实测数据：
 - 外部文档以文档所在目录为根解析相对图片路径，渲染进程不直接读取本地文件
 - 主进程为当前文档目录签发随机令牌，`chmarkdown-ext` 协议只允许访问令牌对应目录下的文件，并阻止 `..` 越界
 - 插入和粘贴图片时由主进程复制到文档旁的 `images/`，Markdown 只写入相对路径
+- 本地笔记的新图片同样使用 `![图片](chmarkdown://images/...)`，不再新建受管 HTML 图片标签
 - 另存为外部文档时复制原文档旁的图片目录，不把图片内容写入会话 JSON
 - 图片加载失败时在预览区显示明确占位状态，不影响正文继续编辑
 
@@ -216,6 +219,7 @@ v0.2.1 实测数据：
 - 本地笔记与外部文件共用 `files:exportDocument` IPC；渲染进程只传递已保存的标题、正文和可选源文件路径
 - 使用 markdown-it token 提取真实图片引用，忽略代码块和行内代码中的伪图片语法
 - 本地笔记的 `chmarkdown://images/` 地址在导出内容中改写为 ZIP 内 `images/` 路径
+- 旧版受管 `<img src="chmarkdown://images/...">` 与新版 Markdown 图片使用同一解析器；导出时统一生成 Markdown 图片语法
 - 外部文件的相对图片必须位于文档目录内；URL 编码路径会先解码，越界、绝对路径和未知协议会拒绝导出
 - 远程和 data URL 保持原样且不下载；即使只有远程图片，存在图片引用的文档仍按产品规则导出 ZIP
 - 所有本地资源在打开保存对话框前完成存在性检查，并按绝对路径去重
@@ -278,3 +282,18 @@ v0.2.1 实测数据：
 - 打包产物使用隔离用户数据目录实际启动；重复启动必须只有一个主窗口，第二次启动进程必须退出
 - `scripts/test-release-smoke.ps1` 同时验证解压版和便携版的窗口创建、命令行文件打开、最近文件、会话写入与单实例行为
 - 1.0.0 同机 5 次启动中位数为 portable 1.138 秒、解压版 0.386 秒；该结果包含 Electron 43 安全运行时的体积与启动开销
+
+## 21. v1.0.1 编辑器与文件拖放修正
+
+- 编辑区监听 textarea 的 `copy`、`cut` 和 `paste` 事件，不在主进程增加剪贴板权限
+- 无选区复制或剪切时提取完整逻辑行，并在剪贴板写入普通文本及 `application/x-chmarkdown-line` 行式标记
+- 只有行式标记存在且粘贴时仍无选区，才在当前行起点插入内容；普通文本和有选区操作继续交给浏览器默认行为
+- 剪切首行、中间行、末行和空末行时分别处理换行边界，避免留下多余空行或错误合并正文
+- 新插入的应用受管图片采用 Markdown 图片语法；调整尺寸时使用 `{width=N%}` 后缀并自动迁移旧 HTML
+- 导出转换先识别旧 HTML 和新版 Markdown 的受管图片，再统一输出 ZIP 内相对 Markdown 图片引用
+- 最近文件标题使用带 `aria-expanded` 和 `aria-controls` 的按钮；折叠状态由独立 composable 持久化
+- 编辑历史使用独立纯函数管理当前快照、撤销栈和恢复栈，每个当前文档最多保留 100 个可撤销步骤
+- textarea 的 `beforeinput` 与 `input` 事件记录正文、光标、选区和选区方向；750 ms 内的连续输入或同方向删除合并为一步
+- 整行剪切与粘贴、查找替换、插入图片及图片尺寸调整通过同一入口写入编辑历史
+- `Ctrl+Z` 和 `Ctrl+Y` 只在 Markdown textarea 获得焦点时接管默认行为，不影响标题、查找框或其他输入控件
+- 文档切换时以新文档正文重置历史；保存后更新已保存基线，撤销到该基线时清除未保存状态

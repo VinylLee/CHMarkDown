@@ -200,6 +200,10 @@ function escapeHtmlAttribute(value: string): string {
     .replace(/>/g, '&gt;')
 }
 
+function escapeMarkdownAlt(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/([\[\]])/g, '\\$1')
+}
+
 function normalizeWidth(width: number | null): number | null {
   return width === null
     ? null
@@ -221,6 +225,27 @@ export function createManagedImageHtml(
     : ` style="zoom:${normalizedWidth}%;"`
 
   return `<img src="${escapeHtmlAttribute(source)}" alt="${escapeHtmlAttribute(alt)}"${style} />`
+}
+
+function createMarkdownImage(
+  source: string,
+  alt: string,
+  width: number | null,
+): string {
+  const normalizedWidth = normalizeWidth(width)
+  const sizeSuffix = normalizedWidth === null ? '' : `{width=${normalizedWidth}%}`
+  return `![${escapeMarkdownAlt(alt)}](${source})${sizeSuffix}`
+}
+
+export function createManagedImageMarkdown(
+  source: string,
+  alt = '图片',
+  width: number | null = null,
+): string {
+  if (!MANAGED_IMAGE_SOURCE_PATTERN.test(source)) {
+    throw new Error('不是有效的 CHMarkDown 图片地址')
+  }
+  return createMarkdownImage(source, alt, width)
 }
 
 export function findResizableMarkdownImages(source: string): MarkdownImageSizeMatch[] {
@@ -254,7 +279,7 @@ export function updateMarkdownImageWidth(
   const image = findResizableMarkdownImages(source)[imageIndex]
   if (!image) return source
 
-  const replacement = createManagedImageHtml(image.source, image.alt, width)
+  const replacement = createManagedImageMarkdown(image.source, image.alt, width)
   return `${source.slice(0, image.start)}${replacement}${source.slice(image.end)}`
 }
 
@@ -272,9 +297,8 @@ export function convertManagedImagesForExport(source: string): ExportedManagedIm
 
     const filename = sourceMatch[1]
     imageFiles.add(filename)
-    const zoom = image.width === null ? '' : ` style="zoom:${image.width}%;"`
     content += source.slice(cursor, image.start)
-    content += `<img src="images/${escapeHtmlAttribute(filename)}" alt="${escapeHtmlAttribute(image.alt)}"${zoom} />`
+    content += createMarkdownImage(`images/${filename}`, image.alt, image.width)
     cursor = image.end
   }
 

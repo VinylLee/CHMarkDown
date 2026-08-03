@@ -4,6 +4,7 @@ import {
   configureMarkdownImageSizing,
   convertManagedImagesForExport,
   createManagedImageHtml,
+  createManagedImageMarkdown,
   findResizableMarkdownImages,
   hasManagedImages,
   updateMarkdownImageWidth,
@@ -22,9 +23,15 @@ describe('markdown image sizing', () => {
     expect(images.map((image) => image.format)).toEqual(['html', 'html', 'markdown'])
   })
 
-  it('creates the managed HTML image syntax with zoom', () => {
+  it('creates the legacy managed HTML image syntax for compatibility', () => {
     expect(createManagedImageHtml('chmarkdown://images/photo.png', '图片', 50)).toBe(
       '<img src="chmarkdown://images/photo.png" alt="图片" style="zoom:50%;" />'
+    )
+  })
+
+  it('creates the canonical managed Markdown image syntax', () => {
+    expect(createManagedImageMarkdown('chmarkdown://images/photo.png', '图片', 50)).toBe(
+      '![图片](chmarkdown://images/photo.png){width=50%}'
     )
   })
 
@@ -33,32 +40,34 @@ describe('markdown image sizing', () => {
     const markdown = `${image}\n${image}`
 
     expect(updateMarkdownImageWidth(markdown, 1, 50)).toBe(
-      `${image}\n<img src="chmarkdown://images/repeated.png" alt="图片" style="zoom:50%;" />`
+      `${image}\n![图片](chmarkdown://images/repeated.png){width=50%}`
     )
   })
 
-  it('converts a legacy Markdown image to HTML when its size changes', () => {
+  it('keeps Markdown image syntax when its size changes', () => {
     const markdown = '![旧图片](chmarkdown://images/legacy.png){width=75%}'
 
     expect(updateMarkdownImageWidth(markdown, 0, 25)).toBe(
-      '<img src="chmarkdown://images/legacy.png" alt="旧图片" style="zoom:25%;" />'
+      '![旧图片](chmarkdown://images/legacy.png){width=25%}'
     )
   })
 
-  it('converts an existing width style to zoom and can remove the scale', () => {
+  it('migrates legacy HTML to Markdown and can remove the scale', () => {
     const html = '<img src="chmarkdown://images/photo.png" alt="图片" style="width:75%; height:auto;" />'
 
-    expect(updateMarkdownImageWidth(html, 0, 25)).toContain('style="zoom:25%;"')
+    expect(updateMarkdownImageWidth(html, 0, 25)).toBe(
+      '![图片](chmarkdown://images/photo.png){width=25%}'
+    )
     expect(updateMarkdownImageWidth(html, 0, null)).toBe(
-      '<img src="chmarkdown://images/photo.png" alt="图片" />'
+      '![图片](chmarkdown://images/photo.png)'
     )
   })
 
   it('clamps widths to the supported range', () => {
     const html = createManagedImageHtml('chmarkdown://images/photo.png')
 
-    expect(updateMarkdownImageWidth(html, 0, 2)).toContain('zoom:10%')
-    expect(updateMarkdownImageWidth(html, 0, 180)).toContain('zoom:100%')
+    expect(updateMarkdownImageWidth(html, 0, 2)).toContain('{width=10%}')
+    expect(updateMarkdownImageWidth(html, 0, 180)).toContain('{width=100%}')
   })
 
   it('ignores image-looking text inside code', () => {
@@ -72,7 +81,7 @@ describe('markdown image sizing', () => {
 
     expect(findResizableMarkdownImages(markdown)).toHaveLength(1)
     expect(updateMarkdownImageWidth(markdown, 0, 40)).toContain(
-      '<img src="chmarkdown://images/real.png" alt="图片" style="zoom:40%;" />'
+      '![图片](chmarkdown://images/real.png){width=40%}'
     )
   })
 
@@ -114,7 +123,7 @@ describe('markdown image sizing', () => {
     expect(hasManagedImages('没有本地图片')).toBe(false)
   })
 
-  it('exports managed HTML as relative Typora-compatible HTML', () => {
+  it('exports both managed formats as relative Markdown images', () => {
     const source = [
       '<img src="chmarkdown://images/photo.png" alt="风景" style="width:50%; height:auto;" />',
       '<img src="chmarkdown://images/original.png" alt="原图" />',
@@ -125,11 +134,11 @@ describe('markdown image sizing', () => {
 
     expect(exported.imageFiles).toEqual(['photo.png', 'original.png', 'legacy.png'])
     expect(exported.content).toContain(
-      '<img src="images/photo.png" alt="风景" style="zoom:50%;" />'
+      '![风景](images/photo.png){width=50%}'
     )
-    expect(exported.content).toContain('<img src="images/original.png" alt="原图" />')
+    expect(exported.content).toContain('![原图](images/original.png)')
     expect(exported.content).toContain(
-      '<img src="images/legacy.png" alt="图片" style="zoom:75%;" />'
+      '![图片](images/legacy.png){width=75%}'
     )
     expect(exported.content).not.toContain('chmarkdown://')
   })

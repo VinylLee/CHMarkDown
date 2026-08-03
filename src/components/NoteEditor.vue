@@ -130,7 +130,9 @@
           :class="{ 'content-textarea--no-wrap': !settings.wordWrap }"
           :style="editorTextStyle" :wrap="settings.wordWrap ? 'soft' : 'off'"
           placeholder="使用 Markdown 记录你的灵感…&#10;&#10;# 标题&#10;**加粗** *斜体*&#10;- 列表项&#10;> 引用&#10;`代码`&#10;&#10;支持 Ctrl+V 粘贴图片"
-          @input="handleContentInput" @paste="handlePaste" @click="handleEditorClick"></textarea>
+          @beforeinput="handleBeforeInput" @input="handleContentInput"
+          @copy="handleCopy" @cut="handleCut"
+          @paste="handlePaste" @click="handleEditorClick"></textarea>
       </div>
 
       <div
@@ -181,7 +183,7 @@ import { useToast } from '../composables/useToast'
 import DocumentSearchPanel from './DocumentSearchPanel.vue'
 import {
   configureMarkdownImageSizing,
-  createManagedImageHtml,
+  createManagedImageMarkdown,
   findResizableMarkdownImages,
   updateMarkdownImageWidth,
 } from '../utils/markdownImageSize'
@@ -199,7 +201,21 @@ import {
   replaceTextMatch,
 } from '../utils/documentSearch'
 import { extractMarkdownHeadings } from '../utils/markdownOutline'
-import { resolveEditorShortcut } from '../utils/keyboardShortcut'
+import {
+  resolveEditorHistoryShortcut,
+  resolveEditorShortcut,
+} from '../utils/keyboardShortcut'
+import {
+  cutCurrentLine,
+  getLineClipboardPayload,
+  LINE_CLIPBOARD_MIME,
+  pasteLineAbove,
+} from '../utils/lineClipboard'
+import {
+  createEditorHistory,
+  resolveInputHistoryGroup,
+  type EditorHistorySnapshot,
+} from '../utils/editorHistory'
 
 const ImageSizeControl = defineAsyncComponent(() => import('./ImageSizeControl.vue'))
 const DocumentOutline = defineAsyncComponent(() => import('./DocumentOutline.vue'))
@@ -227,6 +243,8 @@ const emit = defineEmits<{
 
 const editTitle = ref('')
 const editContent = ref('')
+const savedTitle = ref('')
+const savedContent = ref('')
 const isDirty = ref(false)
 const editorMode = ref<EditorMode>(props.settings.defaultEditorMode)
 const isSaving = ref(false)
@@ -266,6 +284,13 @@ let editorSelection: {
   end: number
   direction: 'forward' | 'backward' | 'none'
 } | null = null
+const editorHistory = createEditorHistory({
+  content: '',
+  selectionStart: 0,
+  selectionEnd: 0,
+  selectionDirection: 'none',
+})
+let pendingInputHistoryGroup: string | null = null
 
 interface DocumentSearchSelection {
   query: string
@@ -319,8 +344,16 @@ watch(
     if (!newNote) {
       editTitle.value = ''
       editContent.value = ''
+      savedTitle.value = ''
+      savedContent.value = ''
       isDirty.value = false
       selectedImageIndex.value = null
+      editorHistory.reset({
+        content: '',
+        selectionStart: 0,
+        selectionEnd: 0,
+        selectionDirection: 'none',
+      })
       return
     }
 
@@ -330,12 +363,21 @@ watch(
     if (newNote.id !== oldNote?.id) {
       editTitle.value = newNote.title
       editContent.value = newNote.content
+      savedTitle.value = newNote.title
+      savedContent.value = newNote.content
       isDirty.value = false
       editorMode.value = props.settings.defaultEditorMode
       selectedImageIndex.value = null
       editorSelection = null
       currentMatchIndex.value = 0
       replaceMessage.value = ''
+      editorHistory.reset({
+        content: newNote.content,
+        selectionStart: 0,
+        selectionEnd: 0,
+        selectionDirection: 'none',
+      })
+      pendingInputHistoryGroup = null
       if (editorMode.value !== 'preview') {
         nextTick(() => textareaRef.value?.focus())
       }
@@ -379,10 +421,35 @@ watch([searchQuery, caseSensitive, wholeWord], () => {
 })
 
 function markDirty(): void {
-  isDirty.value = true
+  isDirty.value = editTitle.value !== savedTitle.value
+    || editContent.value !== savedContent.value
 }
 
-function handleContentInput(): void {
+function getEditorSnapshot(content = editContent.value): EditorHistorySnapshot {
+  const textarea = textareaRef.value
+  const contentLength = content.length
+  return {
+    content,
+    selectionStart: Math.min(textarea?.selectionStart ?? contentLength, contentLength),
+    selectionEnd: Math.min(textarea?.selectionEnd ?? contentLength, contentLength),
+    selectionDirection: textarea?.selectionDirection ?? 'none',
+  }
+}
+
+function handleBeforeInput(event: Event): void {
+  const textarea = event.currentTarget as HTMLTextAreaElement
+  editorHistory.synchronize(getEditorSnapshot(textarea.value))
+  pendingInputHistoryGroup = resolveInputHistoryGroup((event as InputEvent).inputType)
+}
+
+function handleContentInput(event: Event): void {
+  const textarea = event.currentTarget as HTMLTextAreaElement
+  const inputType = (event as InputEvent).inputType
+  editContent.value = textarea.value
+  editorHistory.record(getEditorSnapshot(textarea.value), {
+    group: pendingInputHistoryGroup ?? resolveInputHistoryGroup(inputType),
+  })
+  pendingInputHistoryGroup = null
   markDirty()
   clearImageSelection()
 }
@@ -505,9 +572,10 @@ async function handleReplaceCurrent(): Promise<void> {
   if (matches.length === 0) return
   const index = normalizedMatchIndex()
   const match = matches[index]
-  editContent.value = replaceTextMatch(editContent.value, match, replacementText.value)
-  markDirty()
-  clearImageSelection()
+  const updatedContent = replaceTextMatch(editContent.value, match, replacementText.value)
+  applyEditorContent(updatedContent, {
+    selectionStart: match.start + replacementText.value.length,
+  })
   replaceMessage.value = '已替换 1 处'
 
   await nextTick()
@@ -524,9 +592,9 @@ async function handleReplaceCurrent(): Promise<void> {
 async function handleReplaceAll(): Promise<void> {
   const matches = searchMatches.value
   if (matches.length === 0) return
-  editContent.value = replaceAllTextMatches(editContent.value, matches, replacementText.value)
-  markDirty()
-  clearImageSelection()
+  applyEditorContent(
+    replaceAllTextMatches(editContent.value, matches, replacementText.value),
+  )
   currentMatchIndex.value = 0
   replaceMessage.value = `已替换 ${matches.length} 处`
   await nextTick()
@@ -626,8 +694,7 @@ function handleImageWidthChange(width: number | null): void {
   )
   if (updatedContent === editContent.value) return
 
-  editContent.value = updatedContent
-  markDirty()
+  applyEditorContent(updatedContent)
 }
 
 function selectLastImage(): void {
@@ -649,12 +716,10 @@ async function performSave(): Promise<boolean> {
       content: contentSnapshot,
     })
 
-    if (
-      saved &&
-      editTitle.value === titleSnapshot &&
-      editContent.value === contentSnapshot
-    ) {
-      isDirty.value = false
+    if (saved) {
+      savedTitle.value = titleSnapshot
+      savedContent.value = contentSnapshot
+      markDirty()
     }
     return saved
   } finally {
@@ -678,22 +743,85 @@ async function handleSave(): Promise<boolean> {
   return pendingSave
 }
 
+function restoreEditorSnapshot(snapshot: EditorHistorySnapshot): void {
+  void nextTick(() => {
+    const textarea = textareaRef.value
+    if (!textarea) return
+    textarea.setSelectionRange(
+      snapshot.selectionStart,
+      snapshot.selectionEnd,
+      snapshot.selectionDirection,
+    )
+    textarea.focus()
+  })
+}
+
+interface ApplyEditorContentOptions {
+  selectionStart?: number
+  selectionEnd?: number
+  selectionDirection?: EditorHistorySnapshot['selectionDirection']
+  restoreSelection?: boolean
+}
+
+function applyEditorContent(
+  content: string,
+  options: ApplyEditorContentOptions = {},
+): void {
+  const textarea = textareaRef.value
+  const fallbackPosition = Math.min(
+    textarea?.selectionStart ?? content.length,
+    content.length,
+  )
+  const snapshot: EditorHistorySnapshot = {
+    content,
+    selectionStart: options.selectionStart ?? fallbackPosition,
+    selectionEnd: options.selectionEnd ?? options.selectionStart ?? fallbackPosition,
+    selectionDirection: options.selectionDirection ?? 'none',
+  }
+  editorHistory.synchronize(getEditorSnapshot())
+  editorHistory.record(snapshot)
+  editContent.value = content
+  markDirty()
+  clearImageSelection()
+  if (options.restoreSelection) restoreEditorSnapshot(snapshot)
+}
+
 function insertAtCursor(text: string): void {
   const textarea = textareaRef.value
-  if (!textarea) {
-    editContent.value += text
-    return
-  }
-  const start = textarea.selectionStart
-  const end = textarea.selectionEnd
-  editContent.value =
-    editContent.value.slice(0, start) +
-    text +
-    editContent.value.slice(end)
-  void nextTick(() => {
-    const pos = start + text.length
-    textarea.setSelectionRange(pos, pos)
-    textarea.focus()
+  const start = textarea?.selectionStart ?? editContent.value.length
+  const end = textarea?.selectionEnd ?? editContent.value.length
+  const content = editContent.value.slice(0, start) + text + editContent.value.slice(end)
+  const cursor = start + text.length
+  applyEditorContent(content, {
+    selectionStart: cursor,
+    restoreSelection: true,
+  })
+}
+
+function handleCopy(event: ClipboardEvent): void {
+  const textarea = textareaRef.value
+  const clipboard = event.clipboardData
+  if (!textarea || !clipboard || textarea.selectionStart !== textarea.selectionEnd) return
+
+  const line = getLineClipboardPayload(editContent.value, textarea.selectionStart)
+  event.preventDefault()
+  clipboard.setData('text/plain', line.text)
+  clipboard.setData(LINE_CLIPBOARD_MIME, 'true')
+}
+
+function handleCut(event: ClipboardEvent): void {
+  const textarea = textareaRef.value
+  const clipboard = event.clipboardData
+  if (!textarea || !clipboard || textarea.selectionStart !== textarea.selectionEnd) return
+
+  const line = getLineClipboardPayload(editContent.value, textarea.selectionStart)
+  const updated = cutCurrentLine(editContent.value, textarea.selectionStart)
+  event.preventDefault()
+  clipboard.setData('text/plain', line.text)
+  clipboard.setData(LINE_CLIPBOARD_MIME, 'true')
+  applyEditorContent(updated.content, {
+    selectionStart: updated.cursor,
+    restoreSelection: true,
   })
 }
 
@@ -707,7 +835,6 @@ async function handleInsertImage(): Promise<void> {
       const relativePath = await window.electronAPI.extFiles.uploadImage(props.documentPath)
       if (relativePath) {
         insertAtCursor(`\n![图片](${relativePath})\n`)
-        isDirty.value = true
       }
     } catch (err) {
       console.error('Failed to upload image for external file:', err)
@@ -719,8 +846,7 @@ async function handleInsertImage(): Promise<void> {
   try {
     const imageUrl = await window.electronAPI.notes.uploadImage()
     if (imageUrl) {
-      insertAtCursor(`\n${createManagedImageHtml(imageUrl)}\n`)
-      isDirty.value = true
+      insertAtCursor(`\n${createManagedImageMarkdown(imageUrl)}\n`)
       selectLastImage()
     }
   } catch (err) {
@@ -730,7 +856,28 @@ async function handleInsertImage(): Promise<void> {
 }
 
 async function handlePaste(e: ClipboardEvent): Promise<void> {
-  const items = e.clipboardData?.items
+  const textarea = textareaRef.value
+  const clipboard = e.clipboardData
+  if (
+    textarea &&
+    clipboard &&
+    textarea.selectionStart === textarea.selectionEnd &&
+    clipboard.getData(LINE_CLIPBOARD_MIME) === 'true'
+  ) {
+    const updated = pasteLineAbove(
+      editContent.value,
+      textarea.selectionStart,
+      clipboard.getData('text/plain'),
+    )
+    e.preventDefault()
+    applyEditorContent(updated.content, {
+      selectionStart: updated.cursor,
+      restoreSelection: true,
+    })
+    return
+  }
+
+  const items = clipboard?.items
   if (!items) return
 
   for (const item of items) {
@@ -748,7 +895,6 @@ async function handlePaste(e: ClipboardEvent): Promise<void> {
             file.type,
           )
           insertAtCursor(`\n![图片](${relativePath})\n`)
-          isDirty.value = true
         } catch (err) {
           console.error('Failed to paste image for external file:', err)
           show('粘贴图片失败，请检查文档目录和文件权限。', 'error')
@@ -759,8 +905,7 @@ async function handlePaste(e: ClipboardEvent): Promise<void> {
       try {
         const buffer = await file.arrayBuffer()
         const imageUrl = await window.electronAPI.notes.pasteImage(buffer, file.type)
-        insertAtCursor(`\n${createManagedImageHtml(imageUrl)}\n`)
-        isDirty.value = true
+        insertAtCursor(`\n${createManagedImageMarkdown(imageUrl)}\n`)
         selectLastImage()
       } catch (err) {
         console.error('Failed to paste image:', err)
@@ -772,6 +917,22 @@ async function handlePaste(e: ClipboardEvent): Promise<void> {
 }
 
 function handleKeydown(e: KeyboardEvent): void {
+  const historyAction = resolveEditorHistoryShortcut(e)
+  if (historyAction && document.activeElement === textareaRef.value) {
+    e.preventDefault()
+    const snapshot = historyAction === 'undo'
+      ? editorHistory.undo()
+      : editorHistory.redo()
+    if (snapshot) {
+      pendingInputHistoryGroup = null
+      editContent.value = snapshot.content
+      markDirty()
+      clearImageSelection()
+      restoreEditorSnapshot(snapshot)
+    }
+    return
+  }
+
   const shortcutAction = resolveEditorShortcut(
     e,
     searchOpen.value,

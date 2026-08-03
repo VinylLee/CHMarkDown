@@ -47,7 +47,7 @@ describe('documentExportService', () => {
     expect(readFileSync(destination, 'utf8')).toBe('# Plan\n')
   })
 
-  it('packages managed note images and rewrites their URLs', () => {
+  it('packages managed note images and rewrites legacy HTML as Markdown', () => {
     writeFileSync(path.join(managedImagesDir, 'photo.png'), 'image')
     const plan = prepareDocumentExport({
       title: 'Note',
@@ -55,10 +55,26 @@ describe('documentExportService', () => {
     }, managedImagesDir)
 
     expect(plan.kind).toBe('zip')
-    expect(plan.content).toContain('src="images/photo.png"')
+    expect(plan.content).toContain('![图](images/photo.png)')
+    expect(plan.content).not.toContain('<img')
     expect(plan.assets).toEqual([{
       absolutePath: path.join(managedImagesDir, 'photo.png'),
       archivePath: 'images/photo.png',
+    }])
+  })
+
+  it('packages canonical managed Markdown without treating it as an external path', () => {
+    writeFileSync(path.join(managedImagesDir, 'canonical.png'), 'image')
+    const plan = prepareDocumentExport({
+      title: 'Note',
+      content: '![图片](chmarkdown://images/canonical.png){width=60%}',
+    }, managedImagesDir)
+
+    expect(plan.kind).toBe('zip')
+    expect(plan.content).toBe('![图片](images/canonical.png){width=60%}')
+    expect(plan.assets).toEqual([{
+      absolutePath: path.join(managedImagesDir, 'canonical.png'),
+      archivePath: 'images/canonical.png',
     }])
   })
 

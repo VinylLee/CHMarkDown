@@ -62,7 +62,7 @@ export function prepareDocumentExport(
 ): DocumentExportPlan {
   const documentName = safeDocumentName(input.title)
   const managed = convertManagedImagesForExport(input.content)
-  const markdownSources = extractMarkdownImageSources(managed.content)
+  const markdownSources = extractMarkdownImageSources(input.content)
   const hasImages = managed.imageFiles.length > 0 || markdownSources.length > 0
   const assetsByPath = new Map<string, DocumentExportAsset>()
 

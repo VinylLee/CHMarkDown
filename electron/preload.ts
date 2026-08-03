@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 export interface Note {
   id: string
@@ -83,6 +83,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
   files: {
+    getPathForFile: (file: File): string => webUtils.getPathForFile(file),
     openMarkdown: (): Promise<MarkdownFileDocument | null> =>
       ipcRenderer.invoke('files:openMarkdown'),
     openMarkdownPath: (filePath: string): Promise<MarkdownFileDocument> =>

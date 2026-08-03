@@ -56,9 +56,29 @@
       </button>
       <section class="recent-files" aria-label="最近文件">
         <div class="recent-files-header">
-          <span>最近文件</span>
           <button
-            v-if="recentFiles.length > 0"
+            class="recent-files-toggle"
+            :aria-expanded="!recentFilesSection.state.collapsed"
+            aria-controls="recent-files-content"
+            :title="recentFilesSection.state.collapsed ? '展开最近文件' : '折叠最近文件'"
+            @click="recentFilesSection.toggle()"
+          >
+            <svg
+              class="recent-files-chevron"
+              :class="{ 'recent-files-chevron--collapsed': recentFilesSection.state.collapsed }"
+              width="10"
+              height="10"
+              viewBox="0 0 10 10"
+              fill="none"
+              aria-hidden="true"
+            >
+              <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <span>最近文件</span>
+            <span v-if="recentFiles.length > 0" class="recent-files-count">{{ recentFiles.length }}</span>
+          </button>
+          <button
+            v-if="recentFiles.length > 0 && !recentFilesSection.state.collapsed"
             class="recent-clear"
             title="清除最近文件记录"
             @click="$emit('clearRecent')"
@@ -66,27 +86,29 @@
             清除
           </button>
         </div>
-        <p v-if="recentFiles.length === 0" class="recent-empty">暂无最近文件</p>
-        <div v-else class="recent-file-list">
-          <div
-            v-for="file in recentFiles"
-            :key="file.filePath.toLowerCase()"
-            class="recent-file-item"
-            :title="file.filePath"
-            @click="$emit('openRecent', file.filePath)"
-          >
-            <div class="recent-file-text">
-              <span class="recent-file-name">{{ file.fileName }}</span>
-              <span class="recent-file-path">{{ file.filePath }}</span>
-            </div>
-            <button
-              class="recent-file-remove"
-              :aria-label="`移除 ${file.fileName} 的最近记录`"
-              title="从最近文件中移除"
-              @click.stop="$emit('removeRecent', file.filePath)"
+        <div v-show="!recentFilesSection.state.collapsed" id="recent-files-content" class="recent-files-content">
+          <p v-if="recentFiles.length === 0" class="recent-empty">暂无最近文件</p>
+          <div v-else class="recent-file-list">
+            <div
+              v-for="file in recentFiles"
+              :key="file.filePath.toLowerCase()"
+              class="recent-file-item"
+              :title="file.filePath"
+              @click="$emit('openRecent', file.filePath)"
             >
-              ×
-            </button>
+              <div class="recent-file-text">
+                <span class="recent-file-name">{{ file.fileName }}</span>
+                <span class="recent-file-path">{{ file.filePath }}</span>
+              </div>
+              <button
+                class="recent-file-remove"
+                :aria-label="`移除 ${file.fileName} 的最近记录`"
+                title="从最近文件中移除"
+                @click.stop="$emit('removeRecent', file.filePath)"
+              >
+                ×
+              </button>
+            </div>
           </div>
         </div>
       </section>
@@ -140,10 +162,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useNoteListPanel } from '../composables/useNoteListPanel'
+import { useRecentFilesSection } from '../composables/useRecentFilesSection'
 import ResizeHandle from './ResizeHandle.vue'
 import type { OpenMarkdownFile } from '../utils/openMarkdownFiles'
 
 const panel = useNoteListPanel()
+const recentFilesSection = useRecentFilesSection()
 
 const props = defineProps<{
   notes: Note[]
@@ -400,11 +424,52 @@ function formatTime(isoStr: string): string {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 2px 5px;
+  padding: 0 2px;
   color: var(--color-text-muted);
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.4px;
+}
+
+.recent-files-toggle {
+  min-width: 0;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+
+.recent-files-toggle:hover,
+.recent-files-toggle:focus-visible {
+  color: var(--color-primary);
+}
+
+.recent-files-chevron {
+  flex-shrink: 0;
+  transition: transform var(--transition);
+}
+
+.recent-files-chevron--collapsed {
+  transform: rotate(-90deg);
+}
+
+.recent-files-count {
+  padding: 0 4px;
+  border-radius: 6px;
+  background: var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: 9px;
+}
+
+.recent-files-content {
+  padding-top: 5px;
 }
 
 .recent-clear {

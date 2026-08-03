@@ -34,3 +34,13 @@ export function resolveEditorShortcut(
 export function isNoteListToggleShortcut(event: ShortcutEvent): boolean {
   return matchesPrimaryShortcut(event, 'b')
 }
+
+export type EditorHistoryShortcutAction = 'undo' | 'redo' | null
+
+export function resolveEditorHistoryShortcut(
+  event: ShortcutEvent,
+): EditorHistoryShortcutAction {
+  if (matchesPrimaryShortcut(event, 'z')) return 'undo'
+  if (matchesPrimaryShortcut(event, 'y')) return 'redo'
+  return null
+}
