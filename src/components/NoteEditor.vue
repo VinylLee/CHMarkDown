@@ -108,8 +108,19 @@
     </Transition>
 
     <div class="editor-workspace">
-      <div class="editor-body" :class="`editor-body--${editorMode}`">
-      <div v-show="editorMode !== 'preview'" class="editor-pane editor-pane--edit">
+      <div
+        ref="editorBodyRef"
+        class="editor-body"
+        :class="[
+          `editor-body--${editorMode}`,
+          { 'editor-body--resizing': splitPaneResizing },
+        ]"
+      >
+      <div
+        v-show="editorMode !== 'preview'"
+        class="editor-pane editor-pane--edit"
+        :style="editorMode === 'split' ? splitEditPaneStyle : undefined"
+      >
         <div class="pane-label pane-label--preview">
           <span>Markdown</span>
           <span class="pane-hint">Ctrl+Click 定位</span>
@@ -122,7 +133,22 @@
           @input="handleContentInput" @paste="handlePaste" @click="handleEditorClick"></textarea>
       </div>
 
-      <div v-if="editorMode === 'split'" class="editor-divider"></div>
+      <div
+        v-if="editorMode === 'split'"
+        class="editor-divider"
+        :class="{ 'editor-divider--active': splitPaneResizing }"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="调整编辑区和预览区宽度"
+        aria-valuemin="20"
+        aria-valuemax="80"
+        :aria-valuenow="splitPaneRatioPercent"
+        tabindex="0"
+        title="左右拖动调整宽度；双击恢复均分"
+        @mousedown="splitPane.onMouseDown"
+        @keydown="splitPane.onKeyDown"
+        @dblclick="splitPane.reset"
+      ></div>
 
       <div v-show="editorMode !== 'edit'" class="editor-pane editor-pane--preview">
         <div class="pane-label pane-label--preview">
@@ -164,6 +190,7 @@ import {
 import { transformExternalImagePaths } from '../utils/externalFileImages'
 import { configureMarkdownSourceMap, findSourceLine } from '../utils/markdownSourceMap'
 import { useScrollSync } from '../composables/useScrollSync'
+import { useSplitPane } from '../composables/useSplitPane'
 import {
   findAdjacentMatchIndex,
   findSelectedMatchIndex,
@@ -206,6 +233,7 @@ const selectedImageIndex = ref<number | null>(null)
 const extImageToken = ref<string | null>(null)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const previewRef = ref<HTMLElement | null>(null)
+const editorBodyRef = ref<HTMLElement | null>(null)
 const syncEnabled = ref(true)
 const searchOpen = ref(false)
 const replaceVisible = ref(false)
@@ -219,6 +247,13 @@ const replaceMessage = ref('')
 const searchPanelRef = ref<InstanceType<typeof DocumentSearchPanel> | null>(null)
 const { requestConfirm } = useConfirm()
 const { show } = useToast()
+const splitPane = useSplitPane({
+  containerRef: editorBodyRef,
+  storageKey: 'chmarkdown:editor:split-ratio',
+})
+const splitEditPaneStyle = splitPane.editPaneStyle
+const splitPaneResizing = computed(() => splitPane.state.isResizing)
+const splitPaneRatioPercent = computed(() => Math.round(splitPane.state.ratio * 100))
 const scrollSync = useScrollSync({
   textareaRef,
   previewRef,
@@ -830,6 +865,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
+  splitPane.cleanup()
   if (extImageToken.value) {
     window.electronAPI.extFiles.unregisterDir(extImageToken.value).catch(() => {})
   }
@@ -1023,7 +1059,7 @@ watch(renderedMarkdown, () => {
 }
 
 .editor-body--split {
-  /* split panes */
+  min-width: 0;
 }
 
 .editor-body--preview {
@@ -1035,6 +1071,15 @@ watch(renderedMarkdown, () => {
   flex-direction: column;
   flex: 1;
   min-width: 0;
+}
+
+.editor-body--split .editor-pane--edit {
+  flex-grow: 0;
+  flex-shrink: 0;
+}
+
+.editor-body--resizing .editor-pane {
+  pointer-events: none;
 }
 
 .pane-label {
@@ -1066,9 +1111,30 @@ watch(renderedMarkdown, () => {
 }
 
 .editor-divider {
+  width: 9px;
+  background: transparent;
+  flex-shrink: 0;
+  position: relative;
+  cursor: col-resize;
+  outline: none;
+  user-select: none;
+}
+
+.editor-divider::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 4px;
   width: 1px;
   background: var(--color-border);
-  flex-shrink: 0;
+  transition: width var(--transition), background-color var(--transition), left var(--transition);
+}
+
+.editor-divider:hover::after,
+.editor-divider:focus-visible::after,
+.editor-divider--active::after {
+  left: 3px;
+  width: 3px;
+  background: var(--color-primary);
 }
 
 /* ── Edit pane ── */
