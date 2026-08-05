@@ -46,20 +46,23 @@ CHMarkDown/
 │   │   ├── useConfirm.ts              # 确认弹窗逻辑
 │   │   ├── useLocalStorage.ts         # localStorage 封装
 │   │   ├── useNoteListPanel.ts        # 文档列表面板状态
-│   │   ├── useRecentFilesSection.ts   # 最近文件折叠状态
+│   │   ├── useRecentFilesSection.ts   # 最近文件折叠与高度状态
 │   │   ├── useResizable.ts            # 可调宽度面板
 │   │   ├── useScrollSync.ts           # 编辑/预览同步滚动
 │   │   ├── useSplitPane.ts            # 分栏宽度管理
-│   │   └── useToast.ts               # 提示逻辑
+│   │   ├── useToast.ts               # 提示逻辑
+│   │   └── useVerticalResizable.ts   # 纵向拖拽高度调整
 │   ├── types/
 │   │   └── index.ts                   # 共享类型定义
 │   ├── utils/
 │   │   ├── documentSearch.ts          # 文档查找替换
+│   │   ├── documentStats.ts           # 文档字数统计
 │   │   ├── droppedMarkdownFile.ts     # 拖放文件处理
 │   │   ├── editorHistory.ts           # 撤销/恢复历史
 │   │   ├── externalFileImages.ts      # 外部文件图片处理
 │   │   ├── keyboardShortcut.ts        # 快捷键映射
 │   │   ├── lineClipboard.ts           # 行式剪贴板
+│   │   ├── listContinuation.ts        # 列表自动续行
 │   │   ├── markdownImageReferences.ts # 图片引用解析
 │   │   ├── markdownImageSize.ts       # 图片尺寸解析
 │   │   ├── markdownOutline.ts         # 标题大纲提取
@@ -246,6 +249,7 @@ v0.2.1 实测数据：
 - 定位匹配时切换到分栏编辑，选中准确原文范围，并复用源码行映射同步定位预览
 - 大纲通过 markdown-it token 提取 h1–h6 和源码行号，支持 ATX 与 Setext 标题，并自动忽略代码块中的伪标题
 - 大纲直接从当前编辑草稿计算，标题编辑后立即更新；点击条目复用现有编辑/预览滚动与高亮能力
+- 大纲按标题层级支持折叠与展开：带子标题的条目显示箭头，Shift+点击可批量操作同一层级；折叠状态保存在组件内，不写入文档或本地数据
 
 ## 14. 外部 Markdown 图片
 
@@ -274,7 +278,7 @@ v0.2.1 实测数据：
 - 设置对象使用版本号和严格类型校验；读取失败时返回安全默认值及警告，由界面显示错误提示
 - 设置写入使用同目录临时文件后重命名，失败时清理临时文件并保留原设置
 - 主题由根元素的 `data-theme` 和 CSS 变量驱动；跟随系统时监听 `prefers-color-scheme` 变化
-- 编辑器模式统一为 `edit`、`split` 和 `preview`，切换时继续复用源码行锚点及光标选区恢复
+- 编辑器模式统一为 `edit`、`split` 和 `preview`，切换时继续复用源码行锚点及光标选区恢复；默认打开模式为仅预览（`preview`）
 - 字体、字号和自动换行直接作用于 Markdown textarea，不修改文档正文
 - 图片目录名称只允许安全的单层文件夹名称；外部图片选择和粘贴仍由主进程写入文档目录内
 - 设置修改后立即更新当前窗口；默认打开模式也会立即应用到当前文档
