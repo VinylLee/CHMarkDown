@@ -55,6 +55,8 @@ CHMarkDown/
 │   ├── types/
 │   │   └── index.ts                   # 共享类型定义
 │   ├── utils/
+│   │   ├── documentCloseRange.ts      # 范围关闭目标计算
+│   │   ├── documentOrder.ts           # 文档顺序调整
 │   │   ├── documentSearch.ts          # 文档查找替换
 │   │   ├── documentStats.ts           # 文档字数统计
 │   │   ├── droppedMarkdownFile.ts     # 拖放文件处理
@@ -135,6 +137,7 @@ interface OpenMarkdownFile extends MarkdownFileDocument {
 - 关闭外部文件只清除会话条目；关闭本地笔记等同于删除，必须经过确认
 - 打开其他内容或关闭应用前，复用统一的未保存修改检查
 - 外部文档相对图片路径按第 14 节规则预览和保存；暂不检测其他程序对文件的并发修改
+- 文档列表条目提供右键菜单：按列表顺序关闭上方、下方或除目标外的文档；外部文件支持在资源管理器中打开所在文件夹，由主进程 `shell.showItemInFolder` 完成
 
 ## 6. 页面结构
 
