@@ -123,7 +123,10 @@
       >
         <div class="pane-label pane-label--preview">
           <span>Markdown</span>
-          <span class="pane-hint">Ctrl+Click 定位</span>
+          <span class="pane-label-right">
+            <span class="pane-hint">Ctrl+Click 定位</span>
+            <span class="pane-word-count" :title="`当前文档 ${wordCount} 字`">{{ wordCount }} 字</span>
+          </span>
         </div>
         
         <textarea ref="textareaRef" v-model="editContent" class="content-textarea"
@@ -155,7 +158,10 @@
       <div v-show="editorMode !== 'edit'" class="editor-pane editor-pane--preview">
         <div class="pane-label pane-label--preview">
           <span>预览</span>
-          <span class="pane-hint">点击图片可调整大小</span>
+          <span class="pane-label-right">
+            <span class="pane-hint">点击图片可调整大小</span>
+            <span class="pane-word-count" :title="`当前文档 ${wordCount} 字`">{{ wordCount }} 字</span>
+          </span>
         </div>
         <div ref="previewRef" class="content-preview" :class="{ 'content-preview--full': editorMode === 'preview' }" v-html="renderedMarkdown" @click="handlePreviewClick"></div>
       </div>
@@ -216,6 +222,7 @@ import {
   resolveLineEndEnter,
   resolveListContinuation,
 } from '../utils/listContinuation'
+import { countDocumentWords } from '../utils/documentStats'
 import {
   createEditorHistory,
   resolveInputHistoryGroup,
@@ -321,6 +328,8 @@ const selectedImageWidth = computed(() => {
   if (selectedImageIndex.value === null) return null
   return findResizableMarkdownImages(editContent.value)[selectedImageIndex.value]?.width ?? null
 })
+
+const wordCount = computed(() => countDocumentWords(editContent.value))
 
 const searchMatches = computed(() => findTextMatches(editContent.value, searchQuery.value, {
   caseSensitive: caseSensitive.value,
@@ -1325,6 +1334,19 @@ watch(renderedMarkdown, () => {
   font-weight: 500;
   letter-spacing: 0;
   text-transform: none;
+}
+
+.pane-label-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.pane-word-count {
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .editor-divider {

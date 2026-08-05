@@ -1,7 +1,7 @@
 {
   "name": "chmarkdown",
   "productName": "CHMarkDown",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Windows 本地 Markdown 编辑与笔记工具",
   "author": "VinylLee",
   "main": "dist-electron/main.js",
