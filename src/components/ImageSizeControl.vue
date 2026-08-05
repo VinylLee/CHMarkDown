@@ -26,19 +26,34 @@
       </button>
     </div>
 
-    <label class="slider-wrap">
-      <span class="sr-only">精细调整图片宽度</span>
-      <input
-        class="size-slider"
-        type="range"
-        min="10"
-        max="100"
-        step="5"
-        :value="sliderValue"
-        @input="handleSliderInput"
-      />
-      <span class="slider-value">{{ sliderValue }}%</span>
-    </label>
+    <div class="slider-wrap">
+      <label class="slider-label">
+        <span class="sr-only">精细调整图片宽度</span>
+        <input
+          class="size-slider"
+          type="range"
+          min="10"
+          max="100"
+          step="5"
+          :value="sliderValue"
+          @input="handleSliderInput"
+        />
+      </label>
+      <label class="value-input-wrap">
+        <input
+          ref="numberInputRef"
+          class="value-input"
+          type="number"
+          min="10"
+          max="100"
+          step="5"
+          :value="numberText"
+          @input="handleNumberInput"
+          aria-label="输入图片宽度百分比"
+        />
+        <span class="value-input-suffix">%</span>
+      </label>
+    </div>
 
     <button type="button" class="close-button" title="取消选择图片" @click="emit('close')">
       <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
@@ -49,7 +64,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 const props = defineProps<{
   modelValue: number | null
@@ -70,9 +85,34 @@ const presets: Array<{ label: string; value: number | null }> = [
 
 const sliderValue = computed(() => props.modelValue ?? 100)
 const displayValue = computed(() => props.modelValue === null ? '原始比例' : `${props.modelValue}%`)
+const numberInputRef = ref<HTMLInputElement | null>(null)
+const numberText = ref('100')
+
+watch(
+  () => props.modelValue,
+  (value) => {
+    if (document.activeElement !== numberInputRef.value) {
+      numberText.value = value === null ? '100' : String(value)
+    }
+  },
+  { immediate: true },
+)
 
 function handleSliderInput(event: Event): void {
   emit('update:modelValue', Number((event.target as HTMLInputElement).value))
+}
+
+function handleNumberInput(event: Event): void {
+  const input = event.target as HTMLInputElement
+  numberText.value = input.value
+  const raw = input.value.trim()
+  if (raw === '') return
+  const width = Number(raw)
+  if (!Number.isFinite(width)) return
+  const clamped = Math.min(100, Math.max(10, Math.round(width)))
+  const current = props.modelValue ?? 100
+  if (clamped === current) return
+  emit('update:modelValue', clamped)
 }
 </script>
 
@@ -161,6 +201,11 @@ function handleSliderInput(event: Event): void {
   gap: 9px;
 }
 
+.slider-label {
+  display: inline-flex;
+  align-items: center;
+}
+
 .size-slider {
   width: 112px;
   height: 4px;
@@ -168,12 +213,41 @@ function handleSliderInput(event: Event): void {
   cursor: pointer;
 }
 
-.slider-value {
-  width: 34px;
+.value-input-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
   color: var(--color-text-secondary);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+}
+
+.value-input {
+  width: 44px;
+  padding: 2px 3px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-control-bg);
+  color: var(--color-text);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
   text-align: right;
+}
+
+.value-input::-webkit-outer-spin-button,
+.value-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.value-input {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.value-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
 }
 
 .close-button {

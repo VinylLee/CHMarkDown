@@ -185,6 +185,7 @@ import {
   configureMarkdownImageSizing,
   createManagedImageMarkdown,
   findResizableMarkdownImages,
+  removeMarkdownImage,
   updateMarkdownImageWidth,
 } from '../utils/markdownImageSize'
 import { transformExternalImagePaths } from '../utils/externalFileImages'
@@ -976,6 +977,19 @@ function handleKeydown(e: KeyboardEvent): void {
     void handleSearchShortcut(shortcutAction, selection)
     return
   }
+  if (
+    (e.key === 'Delete' || e.key === 'Backspace') &&
+    selectedImageIndex.value !== null
+  ) {
+    const active = document.activeElement
+    const isTextField = active instanceof HTMLInputElement
+      || active instanceof HTMLTextAreaElement
+    if (!isTextField) {
+      e.preventDefault()
+      deleteSelectedImage()
+      return
+    }
+  }
   if (e.key === 'Escape' && searchOpen.value) {
     closeSearch()
     return
@@ -984,6 +998,15 @@ function handleKeydown(e: KeyboardEvent): void {
     clearImageSelection()
     return
   }
+}
+
+function deleteSelectedImage(): void {
+  if (selectedImageIndex.value === null) return
+  const image = findResizableMarkdownImages(editContent.value)[selectedImageIndex.value]
+  if (!image) return
+  applyEditorContent(removeMarkdownImage(editContent.value, selectedImageIndex.value), {
+    selectionStart: image.start,
+  })
 }
 
 async function handleExport(): Promise<void> {

@@ -7,6 +7,7 @@ import {
   createManagedImageMarkdown,
   findResizableMarkdownImages,
   hasManagedImages,
+  removeMarkdownImage,
   updateMarkdownImageWidth,
 } from './markdownImageSize'
 
@@ -70,6 +71,56 @@ describe('markdown image sizing', () => {
     expect(updateMarkdownImageWidth(html, 0, 180)).toContain('{width=100%}')
   })
 
+  it('recognizes relative-path images in external documents as resizable', () => {
+    const markdown = '![风景](images/photo.png){width=50%}\n\n![另一张](./photos/a.png)'
+    const images = findResizableMarkdownImages(markdown)
+    expect(images.map((image) => image.source)).toEqual([
+      'images/photo.png',
+      './photos/a.png',
+    ])
+    expect(images.map((image) => image.width)).toEqual([50, null])
+  })
+
+  it('updates the width of a relative-path image', () => {
+    expect(updateMarkdownImageWidth('![风景](images/photo.png)', 0, 40)).toBe(
+      '![风景](images/photo.png){width=40%}'
+    )
+    expect(updateMarkdownImageWidth('![风景](images/photo.png){width=40%}', 0, null)).toBe(
+      '![风景](images/photo.png)'
+    )
+  })
+
+  it('removes a managed image including its size suffix', () => {
+    expect(removeMarkdownImage('![图片](chmarkdown://images/photo.png){width=50%}', 0)).toBe('')
+  })
+
+  it('removes a relative-path image from external documents', () => {
+    expect(removeMarkdownImage('第一行\n![风景](images/photo.png){width=40%}\n第三行', 0)).toBe(
+      '第一行\n\n第三行'
+    )
+  })
+
+  it('removes only the selected image when several exist', () => {
+    const markdown = '![甲](images/a.png)\n![乙](images/b.png)'
+    expect(removeMarkdownImage(markdown, 0)).toBe('\n![乙](images/b.png)')
+    expect(removeMarkdownImage(markdown, 1)).toBe('![甲](images/a.png)\n')
+  })
+
+  it('returns the source unchanged for an invalid image index', () => {
+    expect(removeMarkdownImage('![甲](images/a.png)', 5)).toBe('![甲](images/a.png)')
+  })
+
+  it('keeps remote and embedded images non-resizable', () => {
+    const markdown = [
+      '![远程](https://example.com/a.png)',
+      '![内嵌](data:image/png;base64,AAAA)',
+      '![相对](images/local.png)',
+    ].join('\n')
+    const images = findResizableMarkdownImages(markdown)
+    expect(images).toHaveLength(1)
+    expect(images[0].source).toBe('images/local.png')
+  })
+
   it('ignores image-looking text inside code', () => {
     const markdown = [
       '`<img src="chmarkdown://images/inline.png" alt="图片" />`',
@@ -100,6 +151,38 @@ describe('markdown image sizing', () => {
     expect(rendered).toContain('zoom:60%')
     expect(rendered).toContain('chmarkdown-resizable-image--selected')
     expect(rendered).not.toContain('&lt;img')
+  })
+
+  it('renders relative-path images with sizing metadata', () => {
+    const markdown = new MarkdownIt({ html: false })
+    configureMarkdownImageSizing(markdown)
+
+    const rendered = markdown.render(
+      '![风景](images/photo.png){width=50%}',
+      { selectedImageIndex: 0 }
+    )
+
+    expect(rendered).toContain('src="images/photo.png"')
+    expect(rendered).toContain('data-image-index="0"')
+    expect(rendered).toContain('data-image-width="50"')
+    expect(rendered).toContain('zoom:50%')
+    expect(rendered).toContain('chmarkdown-resizable-image--selected')
+    expect(rendered).not.toContain('{width=50%}')
+  })
+
+  it('renders external-document image URLs with sizing metadata', () => {
+    const markdown = new MarkdownIt({ html: false })
+    configureMarkdownImageSizing(markdown)
+
+    const rendered = markdown.render(
+      '![风景](chmarkdown-ext://abc123/images/photo.png){width=30%}',
+      { selectedImageIndex: 0 }
+    )
+
+    expect(rendered).toContain('data-image-index="0"')
+    expect(rendered).toContain('data-image-width="30"')
+    expect(rendered).toContain('zoom:30%')
+    expect(rendered).not.toContain('{width=30%}')
   })
 
   it('keeps arbitrary HTML disabled', () => {

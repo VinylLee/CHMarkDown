@@ -25,6 +25,10 @@ describe('useAppSettings', () => {
     })
   })
 
+  it('uses preview view as the default editor mode for new installs', () => {
+    expect(DEFAULT_APP_SETTINGS.defaultEditorMode).toBe('preview')
+  })
+
   it('loads persisted settings, resolves the system theme, and applies saved updates', async () => {
     const persisted: AppSettings = {
       ...DEFAULT_APP_SETTINGS,

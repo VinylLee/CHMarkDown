@@ -32,6 +32,29 @@ const HTML_ATTRIBUTE_PATTERN = /([a-z_:][\w:.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/
 const ZOOM_STYLE_PATTERN = /(?:^|;)\s*zoom\s*:\s*(\d{1,3})%\s*(?:;|$)/i
 const WIDTH_STYLE_PATTERN = /(?:^|;)\s*width\s*:\s*(\d{1,3})%\s*(?:;|$)/i
 const MANAGED_IMAGE_SOURCE_PATTERN = /^chmarkdown:\/\/images\/([^/?#\\]+)$/i
+const EXTERNAL_IMAGE_SOURCE_PATTERN = /^chmarkdown-ext:\/\/[^/]+\/(.+)$/i
+
+/**
+ * 判断一个图片源地址是否允许调整尺寸。
+ *
+ * 允许：
+ * - 应用受管图片（`chmarkdown://images/...`）
+ * - 外部文档的受管相对图片（`chmarkdown-ext://...`）
+ * - Markdown 原文中的相对路径图片（如 `images/a.png`、`./a.png`、`../a.png`）
+ *
+ * 不允许：远程 URL、data URL、其他协议、绝对路径和锚点。
+ */
+function isResizableImageSource(source: string): boolean {
+  if (!source) return false
+  if (MANAGED_IMAGE_SOURCE_PATTERN.test(source)) return true
+  if (EXTERNAL_IMAGE_SOURCE_PATTERN.test(source)) return true
+  if (/^(?:https?:)?\/\//i.test(source)) return false
+  if (/^data:/i.test(source)) return false
+  if (/^[a-z][a-z\d+.-]*:/i.test(source)) return false
+  if (source.startsWith('#')) return false
+  if (source.startsWith('/')) return false
+  return true
+}
 
 function isEscaped(source: string, index: number): boolean {
   let slashCount = 0
@@ -177,7 +200,7 @@ function parseMarkdownImageAt(source: string, start: number): MarkdownImageSizeM
   if (destinationEnd === -1) return null
 
   const imageSource = source.slice(altEnd + 2, destinationEnd).trim()
-  if (!MANAGED_IMAGE_SOURCE_PATTERN.test(imageSource)) return null
+  if (!isResizableImageSource(imageSource)) return null
 
   const syntaxEnd = destinationEnd + 1
   const suffixMatch = source.slice(syntaxEnd).match(SIZE_SUFFIX_PATTERN)
@@ -279,8 +302,17 @@ export function updateMarkdownImageWidth(
   const image = findResizableMarkdownImages(source)[imageIndex]
   if (!image) return source
 
-  const replacement = createManagedImageMarkdown(image.source, image.alt, width)
+  const replacement = createMarkdownImage(image.source, image.alt, width)
   return `${source.slice(0, image.start)}${replacement}${source.slice(image.end)}`
+}
+
+/**
+ * 删除指定序号的图片（含尺寸后缀），返回修改后的完整文本。
+ */
+export function removeMarkdownImage(source: string, imageIndex: number): string {
+  const image = findResizableMarkdownImages(source)[imageIndex]
+  if (!image) return source
+  return `${source.slice(0, image.start)}${source.slice(image.end)}`
 }
 
 export function convertManagedImagesForExport(source: string): ExportedManagedImages {
@@ -341,7 +373,7 @@ export function configureMarkdownImageSizing(markdown: MarkdownIt): void {
         if (imageToken.type !== 'image') continue
 
         const source = imageToken.attrGet('src') ?? ''
-        if (!MANAGED_IMAGE_SOURCE_PATTERN.test(source)) continue
+        if (!isResizableImageSource(source)) continue
 
         const meta = imageToken.meta as ManagedImageTokenMeta | null
         let width = meta?.managedHtmlImage ? meta.width : null

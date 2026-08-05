@@ -26,7 +26,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   theme: 'system',
   editorFontFamily: 'Cascadia Code',
   editorFontSize: 14,
-  defaultEditorMode: 'split',
+  defaultEditorMode: 'preview',
   wordWrap: true,
   imageDirectoryName: 'images',
   showTrayIcon: true,

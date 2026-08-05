@@ -33,6 +33,11 @@ describe('settingsService', () => {
     })
   })
 
+  it('uses preview view as the default editor mode', () => {
+    expect(DEFAULT_APP_SETTINGS.defaultEditorMode).toBe('preview')
+    expect(normalizeAppSettings({ ...DEFAULT_APP_SETTINGS }).defaultEditorMode).toBe('preview')
+  })
+
   it('persists and reloads validated settings', () => {
     const settings = writeAppSettings(storagePath, {
       ...DEFAULT_APP_SETTINGS,
