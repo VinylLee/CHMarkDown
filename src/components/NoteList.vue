@@ -1,7 +1,11 @@
 <template>
   <div
     class="note-list-panel"
-    :class="{ 'note-list-panel--collapsed': panel.state.collapsed, 'note-list-panel--resizing': panel.resizeState.isResizing }"
+    :class="{
+      'note-list-panel--collapsed': panel.state.collapsed,
+      'note-list-panel--resizing': panel.resizeState.isResizing,
+      'note-list-panel--recent-resizing': recentFilesSection.resizeState.isResizing,
+    }"
     :style="{ width: panel.state.collapsed ? '0px' : panel.state.width + 'px' }"
   >
     <!-- Expand button (visible when collapsed) -->
@@ -54,7 +58,12 @@
         </svg>
         新建笔记
       </button>
-      <section class="recent-files" aria-label="最近文件">
+      <section
+        class="recent-files"
+        :class="{ 'recent-files--collapsed': recentFilesSection.state.collapsed }"
+        :style="recentFilesSection.state.collapsed ? undefined : { height: `${recentFilesSection.state.height}px` }"
+        aria-label="最近文件"
+      >
         <div class="recent-files-header">
           <button
             class="recent-files-toggle"
@@ -112,6 +121,15 @@
           </div>
         </div>
       </section>
+      <div
+        v-if="!recentFilesSection.state.collapsed"
+        class="recent-files-resize-handle"
+        :class="{ 'recent-files-resize-handle--active': recentFilesSection.resizeState.isResizing }"
+        role="separator"
+        aria-orientation="horizontal"
+        title="拖动调整最近文件高度"
+        @mousedown="recentFilesSection.onResizeMouseDown"
+      ></div>
       <div class="note-list">
         <div v-if="documentCount === 0" class="empty-hint">
           <div class="empty-icon">📝</div>
@@ -278,6 +296,10 @@ function formatTime(isoStr: string): string {
   pointer-events: none;
 }
 
+.note-list-panel--recent-resizing .recent-files-content {
+  pointer-events: none;
+}
+
 /* Content wrapper: fade out on collapse */
 .note-list-content {
   display: flex;
@@ -413,11 +435,14 @@ function formatTime(isoStr: string): string {
 }
 
 .recent-files {
-  margin: 0 12px 10px;
+  margin: 0 12px;
   padding: 8px 0;
   border-top: 1px solid var(--color-border);
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .recent-files-header {
@@ -469,6 +494,9 @@ function formatTime(isoStr: string): string {
 }
 
 .recent-files-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   padding-top: 5px;
 }
 
@@ -491,8 +519,32 @@ function formatTime(isoStr: string): string {
 }
 
 .recent-file-list {
-  max-height: 156px;
   overflow-y: auto;
+}
+
+.recent-files-resize-handle {
+  position: relative;
+  height: 6px;
+  margin: 0 12px 8px;
+  flex-shrink: 0;
+  cursor: row-resize;
+}
+
+.recent-files-resize-handle::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 2px;
+  height: 1px;
+  background: var(--color-border);
+}
+
+.recent-files-resize-handle:hover::before,
+.recent-files-resize-handle--active::before {
+  top: 1px;
+  height: 3px;
+  background: var(--color-primary);
 }
 
 .recent-file-item {

@@ -1396,8 +1396,6 @@ watch(renderedMarkdown, () => {
 }
 
 .content-preview--full {
-  max-width: 820px;
-  margin: 0 auto;
   padding: 24px 32px;
 }
 
