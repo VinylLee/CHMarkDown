@@ -17,34 +17,76 @@
 ```text
 CHMarkDown/
 ├── electron/
-│   ├── main.ts
-│   ├── preload.ts
-│   ├── fileOpenRequest.ts
-│   ├── windowClosePolicy.ts
-│   ├── services/
-│   │   ├── markdownFileService.ts
-│   │   ├── recentFileService.ts
-│   │   ├── sessionService.ts
-│   │   ├── settingsService.ts
-│   │   └── noteService.ts
-│   └── windowCloseCoordinator.ts
+│   ├── main.ts                        # Electron 主进程入口
+│   ├── preload.ts                     # preload 脚本，暴露安全 API
+│   ├── fileOpenRequest.ts             # 文件打开请求处理
+│   ├── windowClosePolicy.ts           # 窗口关闭策略
+│   ├── windowCloseCoordinator.ts      # 窗口关闭协调
+│   └── services/
+│       ├── markdownFileService.ts     # Markdown 文件读写
+│       ├── noteService.ts             # 本地笔记服务
+│       ├── recentFileService.ts       # 最近文件记录
+│       ├── sessionService.ts          # 会话状态保存
+│       ├── settingsService.ts         # 偏好设置服务
+│       └── documentExportService.ts   # 文档与图片导出
 ├── src/
 │   ├── components/
+│   │   ├── ConfirmDialog.vue          # 确认弹窗
+│   │   ├── DocumentOutline.vue        # Markdown 标题大纲
+│   │   ├── DocumentSearchPanel.vue    # 查找与替换面板
+│   │   ├── ImageSizeControl.vue       # 图片尺寸调整控件
+│   │   ├── NoteEditor.vue             # Markdown 编辑器
+│   │   ├── NoteList.vue               # 左侧文档列表
+│   │   ├── ResizeHandle.vue           # 分栏拖拽分隔线
+│   │   ├── SettingsDialog.vue         # 偏好设置弹窗
+│   │   └── Toast.vue                  # 操作提示
 │   ├── composables/
-│   │   ├── useSplitPane.ts
+│   │   ├── useAppCloseGuard.ts        # 应用关闭守卫
+│   │   ├── useAppSettings.ts          # 应用设置管理
+│   │   ├── useConfirm.ts              # 确认弹窗逻辑
+│   │   ├── useLocalStorage.ts         # localStorage 封装
+│   │   ├── useNoteListPanel.ts        # 文档列表面板状态
+│   │   ├── useRecentFilesSection.ts   # 最近文件折叠状态
+│   │   ├── useResizable.ts            # 可调宽度面板
+│   │   ├── useScrollSync.ts           # 编辑/预览同步滚动
+│   │   ├── useSplitPane.ts            # 分栏宽度管理
+│   │   └── useToast.ts               # 提示逻辑
+│   ├── types/
+│   │   └── index.ts                   # 共享类型定义
 │   ├── utils/
-│   ├── views/NotesView.vue
+│   │   ├── documentSearch.ts          # 文档查找替换
+│   │   ├── droppedMarkdownFile.ts     # 拖放文件处理
+│   │   ├── editorHistory.ts           # 撤销/恢复历史
+│   │   ├── externalFileImages.ts      # 外部文件图片处理
+│   │   ├── keyboardShortcut.ts        # 快捷键映射
+│   │   ├── lineClipboard.ts           # 行式剪贴板
+│   │   ├── markdownImageReferences.ts # 图片引用解析
+│   │   ├── markdownImageSize.ts       # 图片尺寸解析
+│   │   ├── markdownOutline.ts         # 标题大纲提取
+│   │   ├── markdownSourceMap.ts       # 编辑/预览位置映射
+│   │   ├── openMarkdownFiles.ts       # 已打开文件状态
+│   │   ├── resolveUnsavedChanges.ts   # 未保存修改处理
+│   │   ├── sessionState.ts            # 会话状态管理
+│   │   └── workspaceBootstrap.ts      # 启动数据加载
+│   ├── views/
+│   │   └── NotesView.vue              # 主页面
 │   ├── App.vue
-│   └── main.ts
+│   ├── main.ts
+│   └── env.d.ts
 ├── resources/
-│   ├── chmarkdown.png
-│   └── chmarkdown.ico
+│   ├── chmarkdown.png                 # 高分辨率源图
+│   └── chmarkdown.ico                 # Windows 多尺寸图标
 ├── scripts/
-│   ├── measure-startup.ps1
-│   └── test-release-smoke.ps1
+│   ├── measure-startup.ps1            # 启动性能测量
+│   └── test-release-smoke.ps1         # 发行包烟雾测试
 ├── docs/
+│   ├── PRD.md                         # 产品需求文档
+│   ├── ROADMAP.md                     # 开发路线图
+│   ├── TECH_DESIGN.md                 # 技术设计（本文档）
+│   └── PROJECT_OVERVIEW.md            # 项目概要与版本历史
 ├── package.json
-└── vite.config.mts
+├── vite.config.mts
+└── CHANGELOG.md                       # 面向用户的版本变更日志
 ```
 
 ## 3. 数据模型
@@ -257,43 +299,3 @@ v0.2.1 实测数据：
 - 分隔线使用 `separator` 语义及垂直方向 ARIA 属性，左右方向键每次调整 2%，按住 Shift 调整 10%
 - 双击分隔线恢复 50:50；离开组件时移除文档级拖动监听并恢复光标、文本选择状态
 - 仅分栏模式应用自定义比例；纯编辑和纯预览继续占满可用编辑工作区
-
-## 19. v0.9.0 启动与运行性能
-
-- 主进程不再静态载入文档导出模块；首次执行导出时才动态载入图片引用解析、Markdown 解析和 ZIP 写入代码
-- 主进程初始 JavaScript 从 115.09 kB 降至 17.23 kB，导出逻辑保留在独立的 98.30 kB 按需块中
-- `BrowserWindow` 创建和页面加载先于应用菜单及托盘初始化，让 Chromium 加载与非关键原生界面初始化重叠执行
-- 主进程在启动时只读取并校验一次 `settings.json`；后续设置 IPC 和图片目录查询复用内存缓存，保存后刷新缓存
-- 渲染进程用 `Promise.allSettled` 并行读取笔记与会话，单项失败仍保留另一项的有效数据和原有错误提示
-- 会话中的多个外部 Markdown 文件并行读取、按忽略大小写的路径去重，并在完成后按原会话顺序组装列表
-- 设置弹窗、图片尺寸控件和文档大纲使用异步组件，只在用户实际打开对应功能时加载
-- `scripts/measure-startup.ps1` 使用隔离用户数据目录重复启动同一构建，并以主窗口标题出现为统一结束点
-- 测量脚本每轮结束只终止带有本轮隔离目录参数的进程，并校验临时目录后清理测试数据
-
-## 20. v1.0.0 稳定版与发行验证
-
-- Electron 更新到 43.2.0，electron-builder 更新到 26.15.3；应用继续使用隔离渲染进程和受限 preload API
-- Vite 8、Vitest 4 和新版 Electron 构建插件只改变构建与测试工具，不改变本地数据模型或产品权限边界
-- `vite.config.mts` 明确使用 ESM 配置格式，避免依赖未来 Vite 版本的 CommonJS 兼容加载器
-- 使用 npm 锁文件做全新依赖安装，再分别执行自动化测试、类型检查、生产构建和依赖审计
-- 文件服务回归包含超过 8 MiB 的 UTF-8 Markdown 原样写入和读取，防止大文件被截断或编码损坏
-- 正式发行同时生成 portable EXE 与 Windows x64 ZIP，并检查包内应用版本、主程序、ASAR 和图标资源
-- Windows 可执行文件保留 CHMarkDown 产品名、1.0.0 版本和应用图标，但当前不使用商业代码签名证书
-- 打包产物使用隔离用户数据目录实际启动；重复启动必须只有一个主窗口，第二次启动进程必须退出
-- `scripts/test-release-smoke.ps1` 同时验证解压版和便携版的窗口创建、命令行文件打开、最近文件、会话写入与单实例行为
-- 1.0.0 同机 5 次启动中位数为 portable 1.138 秒、解压版 0.386 秒；该结果包含 Electron 43 安全运行时的体积与启动开销
-
-## 21. v1.0.1 编辑器与文件拖放修正
-
-- 编辑区监听 textarea 的 `copy`、`cut` 和 `paste` 事件，不在主进程增加剪贴板权限
-- 无选区复制或剪切时提取完整逻辑行，并在剪贴板写入普通文本及 `application/x-chmarkdown-line` 行式标记
-- 只有行式标记存在且粘贴时仍无选区，才在当前行起点插入内容；普通文本和有选区操作继续交给浏览器默认行为
-- 剪切首行、中间行、末行和空末行时分别处理换行边界，避免留下多余空行或错误合并正文
-- 新插入的应用受管图片采用 Markdown 图片语法；调整尺寸时使用 `{width=N%}` 后缀并自动迁移旧 HTML
-- 导出转换先识别旧 HTML 和新版 Markdown 的受管图片，再统一输出 ZIP 内相对 Markdown 图片引用
-- 最近文件标题使用带 `aria-expanded` 和 `aria-controls` 的按钮；折叠状态由独立 composable 持久化
-- 编辑历史使用独立纯函数管理当前快照、撤销栈和恢复栈，每个当前文档最多保留 100 个可撤销步骤
-- textarea 的 `beforeinput` 与 `input` 事件记录正文、光标、选区和选区方向；750 ms 内的连续输入或同方向删除合并为一步
-- 整行剪切与粘贴、查找替换、插入图片及图片尺寸调整通过同一入口写入编辑历史
-- `Ctrl+Z` 和 `Ctrl+Y` 只在 Markdown textarea 获得焦点时接管默认行为，不影响标题、查找框或其他输入控件
-- 文档切换时以新文档正文重置历史；保存后更新已保存基线，撤销到该基线时清除未保存状态

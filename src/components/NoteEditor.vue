@@ -132,7 +132,7 @@
           placeholder="使用 Markdown 记录你的灵感…&#10;&#10;# 标题&#10;**加粗** *斜体*&#10;- 列表项&#10;> 引用&#10;`代码`&#10;&#10;支持 Ctrl+V 粘贴图片"
           @beforeinput="handleBeforeInput" @input="handleContentInput"
           @copy="handleCopy" @cut="handleCut"
-          @paste="handlePaste" @click="handleEditorClick"></textarea>
+          @paste="handlePaste" @keydown="handleTextareaKeydown" @click="handleEditorClick"></textarea>
       </div>
 
       <div
@@ -211,6 +211,10 @@ import {
   LINE_CLIPBOARD_MIME,
   pasteLineAbove,
 } from '../utils/lineClipboard'
+import {
+  resolveLineEndEnter,
+  resolveListContinuation,
+} from '../utils/listContinuation'
 import {
   createEditorHistory,
   resolveInputHistoryGroup,
@@ -454,6 +458,32 @@ function handleContentInput(event: Event): void {
   clearImageSelection()
 }
 
+function handleTextareaKeydown(e: KeyboardEvent): void {
+  if (e.key !== 'Enter' || e.isComposing) return
+  const textarea = e.currentTarget as HTMLTextAreaElement
+
+  // Ctrl+Enter：光标跳到当前行行末，再执行回车行为（列表行继续列表，普通行插入换行）
+  if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
+    e.preventDefault()
+    const result = resolveLineEndEnter(editContent.value, textarea.selectionStart)
+    applyEditorContent(result.content, {
+      selectionStart: result.cursor,
+      restoreSelection: true,
+    })
+    return
+  }
+
+  if (textarea.selectionStart !== textarea.selectionEnd) return
+  const result = resolveListContinuation(editContent.value, textarea.selectionStart)
+  if (!result) return
+  e.preventDefault()
+  applyEditorContent(result.content, {
+    selectionStart: result.cursor,
+    restoreSelection: true,
+    historyGroup: 'list-continuation',
+  })
+}
+
 function normalizedMatchIndex(): number {
   const count = searchMatches.value.length
   if (count === 0) return 0
@@ -694,7 +724,7 @@ function handleImageWidthChange(width: number | null): void {
   )
   if (updatedContent === editContent.value) return
 
-  applyEditorContent(updatedContent)
+  applyEditorContent(updatedContent, { preserveImageSelection: true })
 }
 
 function selectLastImage(): void {
@@ -761,6 +791,8 @@ interface ApplyEditorContentOptions {
   selectionEnd?: number
   selectionDirection?: EditorHistorySnapshot['selectionDirection']
   restoreSelection?: boolean
+  preserveImageSelection?: boolean
+  historyGroup?: string
 }
 
 function applyEditorContent(
@@ -779,10 +811,10 @@ function applyEditorContent(
     selectionDirection: options.selectionDirection ?? 'none',
   }
   editorHistory.synchronize(getEditorSnapshot())
-  editorHistory.record(snapshot)
+  editorHistory.record(snapshot, options.historyGroup ? { group: options.historyGroup } : undefined)
   editContent.value = content
   markDirty()
-  clearImageSelection()
+  if (!options.preserveImageSelection) clearImageSelection()
   if (options.restoreSelection) restoreEditorSnapshot(snapshot)
 }
 
