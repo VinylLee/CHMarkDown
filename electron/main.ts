@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol, net, Menu, Tray } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, protocol, net, Menu, Tray, shell } from 'electron'
 import type { MenuItemConstructorOptions } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -317,6 +317,14 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('files:openMarkdownPath', (_event, filePath: string) => {
     return readMarkdownFile(path.resolve(filePath))
+  })
+
+  ipcMain.handle('files:revealInFolder', (_event, filePath: unknown) => {
+    if (typeof filePath !== 'string' || filePath.length === 0) return false
+    const resolved = path.resolve(filePath)
+    if (!fs.existsSync(resolved)) return false
+    shell.showItemInFolder(resolved)
+    return true
   })
 
   ipcMain.handle('files:getRecent', () => {

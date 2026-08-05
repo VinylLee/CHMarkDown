@@ -125,7 +125,7 @@
           <span>Markdown</span>
           <span class="pane-label-right">
             <span class="pane-hint">Ctrl+Click 定位</span>
-            <span class="pane-word-count" :title="`当前文档 ${wordCount} 字`">{{ wordCount }} 字</span>
+            <span v-if="editorMode !== 'split'" class="pane-word-count" :title="wordCountTitle">{{ wordCount }}<template v-if="selectedWordCount > 0">/{{ selectedWordCount }}</template> 字</span>
           </span>
         </div>
         
@@ -135,7 +135,8 @@
           placeholder="使用 Markdown 记录你的灵感…&#10;&#10;# 标题&#10;**加粗** *斜体*&#10;- 列表项&#10;> 引用&#10;`代码`&#10;&#10;支持 Ctrl+V 粘贴图片"
           @beforeinput="handleBeforeInput" @input="handleContentInput"
           @copy="handleCopy" @cut="handleCut"
-          @paste="handlePaste" @keydown="handleTextareaKeydown" @click="handleEditorClick"></textarea>
+          @paste="handlePaste" @keydown="handleTextareaKeydown" @click="handleEditorClick"
+          @select="updateSelectedText" @keyup="updateSelectedText"></textarea>
       </div>
 
       <div
@@ -160,10 +161,10 @@
           <span>预览</span>
           <span class="pane-label-right">
             <span class="pane-hint">点击图片可调整大小</span>
-            <span class="pane-word-count" :title="`当前文档 ${wordCount} 字`">{{ wordCount }} 字</span>
+            <span class="pane-word-count" :title="wordCountTitle">{{ wordCount }}<template v-if="selectedWordCount > 0">/{{ selectedWordCount }}</template> 字</span>
           </span>
         </div>
-        <div ref="previewRef" class="content-preview" :class="{ 'content-preview--full': editorMode === 'preview' }" v-html="renderedMarkdown" @click="handlePreviewClick"></div>
+        <div ref="previewRef" class="content-preview" :class="{ 'content-preview--full': editorMode === 'preview' }" v-html="renderedMarkdown" @click="handlePreviewClick" @mouseup="updateSelectedText"></div>
       </div>
       </div>
 
@@ -330,6 +331,38 @@ const selectedImageWidth = computed(() => {
 })
 
 const wordCount = computed(() => countDocumentWords(editContent.value))
+const selectedText = ref('')
+
+function updateSelectedText(): void {
+  const textarea = textareaRef.value
+  if (textarea && document.activeElement === textarea) {
+    selectedText.value = textarea.value.slice(textarea.selectionStart, textarea.selectionEnd)
+    return
+  }
+
+  const selection = window.getSelection()
+  const preview = previewRef.value
+  if (
+    selection
+    && !selection.isCollapsed
+    && preview
+    && selection.anchorNode
+    && selection.focusNode
+    && preview.contains(selection.anchorNode)
+    && preview.contains(selection.focusNode)
+  ) {
+    selectedText.value = selection.toString()
+    return
+  }
+  selectedText.value = ''
+}
+
+const selectedWordCount = computed(() => countDocumentWords(selectedText.value))
+const wordCountTitle = computed(() =>
+  selectedWordCount.value > 0
+    ? `当前文档 ${wordCount.value} 字，选中 ${selectedWordCount.value} 字`
+    : `当前文档 ${wordCount.value} 字`,
+)
 
 const searchMatches = computed(() => findTextMatches(editContent.value, searchQuery.value, {
   caseSensitive: caseSensitive.value,
@@ -466,6 +499,7 @@ function handleContentInput(event: Event): void {
   pendingInputHistoryGroup = null
   markDirty()
   clearImageSelection()
+  updateSelectedText()
 }
 
 function handleTextareaKeydown(e: KeyboardEvent): void {
@@ -1087,10 +1121,12 @@ function attachImageErrorHandlers(): void {
 
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
+  document.addEventListener('selectionchange', updateSelectedText)
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
+  document.removeEventListener('selectionchange', updateSelectedText)
   splitPane.cleanup()
   if (extImageToken.value) {
     window.electronAPI.extFiles.unregisterDir(extImageToken.value).catch(() => {})

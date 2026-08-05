@@ -104,6 +104,7 @@
               class="recent-file-item"
               :title="file.filePath"
               @click="$emit('openRecent', file.filePath)"
+              @contextmenu.prevent="openRecentContextMenu($event, file.filePath)"
             >
               <div class="recent-file-text">
                 <span class="recent-file-name">{{ file.fileName }}</span>
@@ -130,7 +131,7 @@
         title="拖动调整最近文件高度"
         @mousedown="recentFilesSection.onResizeMouseDown"
       ></div>
-      <div class="note-list">
+      <div class="note-list" @dblclick="handleNoteListBlankClick">
         <div v-if="documentCount === 0" class="empty-hint">
           <div class="empty-icon">📝</div>
           <p>还没有笔记</p>
@@ -140,8 +141,20 @@
           v-for="document in orderedDocuments"
           :key="document.id"
           class="note-item"
-          :class="{ 'note-item--active': document.id === selectedId }"
+          :class="{
+            'note-item--active': document.id === selectedId,
+            'note-item--dragging': draggingId === document.id,
+            'note-item--drop-before': dropTarget?.id === document.id && dropTarget.placement === 'before',
+            'note-item--drop-after': dropTarget?.id === document.id && dropTarget.placement === 'after',
+          }"
+          draggable="true"
           @click="$emit('select', document.id)"
+          @contextmenu.prevent="openContextMenu($event, document.id)"
+          @dragstart="handleDragStart($event, document.id)"
+          @dragover="handleDragOver($event, document.id)"
+          @dragleave="handleDragLeave"
+          @drop="handleDrop($event, document.id)"
+          @dragend="handleDragEnd"
         >
           <div class="note-item-head">
             <span class="note-item-title">
@@ -167,6 +180,59 @@
       </div>
     </div>
 
+    <div
+      v-if="contextMenu"
+      class="context-menu-backdrop"
+      @click="closeContextMenu"
+      @contextmenu.prevent="closeContextMenu"
+    ></div>
+    <div
+      v-if="contextMenu"
+      class="context-menu"
+      role="menu"
+      :style="{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }"
+      @contextmenu.prevent
+    >
+      <button
+        type="button"
+        class="context-menu-item"
+        role="menuitem"
+        :disabled="aboveCount === 0"
+        @click="emitCloseRange('above')"
+      >
+        {{ contextMenu.source === 'recent' ? '关闭以上' : '关闭以上标签' }}
+      </button>
+      <button
+        type="button"
+        class="context-menu-item"
+        role="menuitem"
+        :disabled="belowCount === 0"
+        @click="emitCloseRange('below')"
+      >
+        {{ contextMenu.source === 'recent' ? '关闭以下' : '关闭以下标签' }}
+      </button>
+      <button
+        type="button"
+        class="context-menu-item"
+        role="menuitem"
+        :disabled="othersCount === 0"
+        @click="emitCloseRange('others')"
+      >
+        {{ contextMenu.source === 'recent' ? '关闭其他' : '关闭其他标签' }}
+      </button>
+      <template v-if="contextMenu.source === 'recent' || contextMenu.kind === 'file'">
+        <div class="context-menu-sep" role="separator"></div>
+        <button
+          type="button"
+          class="context-menu-item"
+          role="menuitem"
+          @click="handleOpenInExplorer"
+        >
+          在资源管理器中打开
+        </button>
+      </template>
+    </div>
+
     <!-- Resize handle (hidden when collapsed) -->
     <ResizeHandle
       v-if="!panel.state.collapsed"
@@ -178,9 +244,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useNoteListPanel } from '../composables/useNoteListPanel'
 import { useRecentFilesSection } from '../composables/useRecentFilesSection'
+import type { DocumentCloseRange } from '../utils/documentCloseRange'
+import type { DocumentDropPlacement } from '../utils/documentOrder'
 import ResizeHandle from './ResizeHandle.vue'
 import type { OpenMarkdownFile } from '../utils/openMarkdownFiles'
 
@@ -195,7 +263,7 @@ const props = defineProps<{
   documentOrder: string[]
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   select: [id: string]
   close: [id: string, kind: 'note' | 'file']
   create: []
@@ -203,6 +271,10 @@ defineEmits<{
   removeRecent: [filePath: string]
   clearRecent: []
   settings: []
+  'close-range': [range: DocumentCloseRange, id: string]
+  'recent-close-range': [range: DocumentCloseRange, filePath: string]
+  'reorder': [sourceId: string, targetId: string, placement: DocumentDropPlacement]
+  'open-in-explorer': [filePath: string]
 }>()
 
 interface DocumentListItem {
@@ -211,22 +283,35 @@ interface DocumentListItem {
   title: string
   content: string
   updatedAt: string
+  filePath: string | null
+}
+
+interface ContextMenuState {
+  x: number
+  y: number
+  source: 'documents' | 'recent'
+  id?: string
+  kind?: 'note' | 'file'
+  filePath: string | null
+  index: number
 }
 
 const documents = computed<DocumentListItem[]>(() => [
-  ...props.notes.map((note) => ({
-    id: note.id,
-    kind: 'note' as const,
-    title: note.title,
-    content: note.content,
-    updatedAt: note.updatedAt,
-  })),
   ...props.externalFiles.map((file) => ({
     id: file.id,
     kind: 'file' as const,
     title: file.fileName,
     content: file.content,
     updatedAt: file.openedAt,
+    filePath: file.filePath,
+  })),
+  ...props.notes.map((note) => ({
+    id: note.id,
+    kind: 'note' as const,
+    title: note.title,
+    content: note.content,
+    updatedAt: note.updatedAt,
+    filePath: null,
   })),
 ])
 
@@ -268,6 +353,141 @@ function formatTime(isoStr: string): string {
   const day = String(d.getDate()).padStart(2, '0')
   return `${d.getFullYear()}-${month}-${day}`
 }
+
+const contextMenu = ref<ContextMenuState | null>(null)
+
+const contextMenuListLength = computed(() => {
+  if (contextMenu.value?.source === 'recent') return props.recentFiles.length
+  return orderedDocuments.value.length
+})
+
+const aboveCount = computed(() => {
+  if (!contextMenu.value) return 0
+  return Math.max(0, contextMenu.value.index)
+})
+const belowCount = computed(() => {
+  if (!contextMenu.value) return 0
+  return Math.max(0, contextMenuListLength.value - contextMenu.value.index - 1)
+})
+const othersCount = computed(() => Math.max(0, contextMenuListLength.value - 1))
+
+function openContextMenu(event: MouseEvent, id: string): void {
+  const item = orderedDocuments.value.find((document) => document.id === id)
+  if (!item) return
+  const x = Math.min(event.clientX, window.innerWidth - 190)
+  const y = Math.min(event.clientY, window.innerHeight - 170)
+  const index = orderedDocuments.value.findIndex((document) => document.id === id)
+  contextMenu.value = {
+    x: Math.max(0, x),
+    y: Math.max(0, y),
+    source: 'documents',
+    id,
+    kind: item.kind,
+    filePath: item.filePath,
+    index,
+  }
+}
+
+function openRecentContextMenu(event: MouseEvent, filePath: string): void {
+  const x = Math.min(event.clientX, window.innerWidth - 190)
+  const y = Math.min(event.clientY, window.innerHeight - 170)
+  const index = props.recentFiles.findIndex((file) => file.filePath === filePath)
+  if (index < 0) return
+  contextMenu.value = {
+    x: Math.max(0, x),
+    y: Math.max(0, y),
+    source: 'recent',
+    filePath,
+    index,
+  }
+}
+
+function closeContextMenu(): void {
+  contextMenu.value = null
+}
+
+function emitCloseRange(range: DocumentCloseRange): void {
+  const menu = contextMenu.value
+  if (!menu) return
+  closeContextMenu()
+  if (menu.source === 'recent') {
+    if (menu.filePath) emit('recent-close-range', range, menu.filePath)
+    return
+  }
+  if (menu.id) emit('close-range', range, menu.id)
+}
+
+function handleOpenInExplorer(): void {
+  const filePath = contextMenu.value?.filePath
+  if (!filePath) return
+  closeContextMenu()
+  emit('open-in-explorer', filePath)
+}
+
+function handleNoteListBlankClick(event: MouseEvent): void {
+  const target = event.target as HTMLElement
+  if (target.closest('.note-item') || target.closest('button')) return
+  emit('create')
+}
+
+const draggingId = ref<string | null>(null)
+const dropTarget = ref<{ id: string; placement: DocumentDropPlacement } | null>(null)
+
+function handleDragStart(event: DragEvent, id: string): void {
+  draggingId.value = id
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', id)
+  }
+}
+
+function handleDragOver(event: DragEvent, id: string): void {
+  if (draggingId.value === null || draggingId.value === id) return
+  event.preventDefault()
+  if (!event.dataTransfer) return
+  event.dataTransfer.dropEffect = 'move'
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  const placement = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+  dropTarget.value = { id, placement }
+}
+
+function handleDragLeave(event: DragEvent): void {
+  const related = event.relatedTarget as Node | null
+  const current = event.currentTarget as HTMLElement
+  if (related && current.contains(related)) return
+  dropTarget.value = null
+}
+
+function handleDrop(event: DragEvent, id: string): void {
+  event.preventDefault()
+  event.stopPropagation()
+  const sourceId = draggingId.value
+  if (sourceId && sourceId !== id && dropTarget.value) {
+    emit('reorder', sourceId, id, dropTarget.value.placement)
+  }
+  clearDragState()
+}
+
+function handleDragEnd(): void {
+  clearDragState()
+}
+
+function clearDragState(): void {
+  draggingId.value = null
+  dropTarget.value = null
+}
+
+function handleWindowKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape') closeContextMenu()
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', handleWindowKeydown)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleWindowKeydown)
+})
 </script>
 
 <style scoped>
@@ -651,6 +871,18 @@ function formatTime(isoStr: string): string {
   border-left-color: var(--color-primary);
 }
 
+.note-item--dragging {
+  opacity: 0.5;
+}
+
+.note-item--drop-before {
+  box-shadow: inset 0 2px 0 var(--color-primary);
+}
+
+.note-item--drop-after {
+  box-shadow: inset 0 -2px 0 var(--color-primary);
+}
+
 .note-item-head {
   display: flex;
   align-items: center;
@@ -733,5 +965,51 @@ function formatTime(isoStr: string): string {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.context-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+
+.context-menu {
+  position: fixed;
+  z-index: 61;
+  min-width: 160px;
+  padding: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
+}
+
+.context-menu-item {
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.context-menu-item:hover:not(:disabled) {
+  background: var(--color-active);
+  color: var(--color-primary);
+}
+
+.context-menu-item:disabled {
+  color: var(--color-text-muted);
+  cursor: default;
+  opacity: 0.55;
+}
+
+.context-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--color-border);
 }
 </style>

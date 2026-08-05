@@ -88,6 +88,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('files:openMarkdown'),
     openMarkdownPath: (filePath: string): Promise<MarkdownFileDocument> =>
       ipcRenderer.invoke('files:openMarkdownPath', filePath),
+    revealInFolder: (filePath: string): Promise<boolean> =>
+      ipcRenderer.invoke('files:revealInFolder', filePath),
     getRecent: (): Promise<RecentFile[]> => ipcRenderer.invoke('files:getRecent'),
     addRecent: (filePath: string): Promise<RecentFile[]> =>
       ipcRenderer.invoke('files:addRecent', filePath),

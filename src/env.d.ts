@@ -77,6 +77,7 @@ interface Window {
       getPathForFile: (file: File) => string
       openMarkdown: () => Promise<MarkdownFileDocument | null>
       openMarkdownPath: (filePath: string) => Promise<MarkdownFileDocument>
+      revealInFolder: (filePath: string) => Promise<boolean>
       getRecent: () => Promise<RecentFile[]>
       addRecent: (filePath: string) => Promise<RecentFile[]>
       removeRecent: (filePath: string) => Promise<RecentFile[]>

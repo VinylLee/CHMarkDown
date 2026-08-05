@@ -14,6 +14,10 @@
       :document-order="documentOrder"
       @select="trySelectDocument"
       @close="handleCloseListItem"
+      @close-range="handleCloseRange"
+      @recent-close-range="handleRecentCloseRange"
+      @open-in-explorer="handleOpenInExplorer"
+      @reorder="handleReorder"
       @create="tryCreateNote"
       @open-recent="queueOpenFilePath($event, 'recent')"
       @remove-recent="handleRemoveRecent"
@@ -54,6 +58,10 @@ import { useConfirm } from '../composables/useConfirm'
 import { useToast } from '../composables/useToast'
 import { useNoteListPanel } from '../composables/useNoteListPanel'
 import { resolveUnsavedChanges } from '../utils/resolveUnsavedChanges'
+import { resolveCloseRangeTargets } from '../utils/documentCloseRange'
+import type { DocumentCloseRange } from '../utils/documentCloseRange'
+import { moveDocumentInOrder } from '../utils/documentOrder'
+import type { DocumentDropPlacement } from '../utils/documentOrder'
 import { registerAppCloseGuard } from '../composables/useAppCloseGuard'
 import { getDroppedMarkdownFilePath } from '../utils/droppedMarkdownFile'
 import {
@@ -146,6 +154,24 @@ function moveDocumentToFront(id: string): void {
 
 function removeDocumentFromOrder(id: string): void {
   documentOrder.value = documentOrder.value.filter((item) => item !== id)
+}
+
+function removeDocumentsFromOrder(ids: string[]): void {
+  const excluded = new Set(ids)
+  documentOrder.value = documentOrder.value.filter((id) => !excluded.has(id))
+}
+
+function handleReorder(
+  sourceId: string,
+  targetId: string,
+  placement: DocumentDropPlacement,
+): void {
+  documentOrder.value = moveDocumentInOrder(
+    documentOrder.value,
+    sourceId,
+    targetId,
+    placement,
+  )
 }
 
 function replaceDocumentInOrder(previousId: string | null, nextId: string): void {
@@ -359,6 +385,32 @@ async function handleRemoveRecent(filePath: string): Promise<void> {
   }
 }
 
+async function handleRecentCloseRange(range: DocumentCloseRange, filePath: string): Promise<void> {
+  const targets = resolveCloseRangeTargets(
+    recentFiles.value.map((file) => file.filePath),
+    range,
+    filePath,
+  )
+  if (targets.length === 0) return
+
+  try {
+    let updated = recentFiles.value
+    for (const target of targets) {
+      updated = await window.electronAPI.files.removeRecent(target)
+    }
+    recentFiles.value = updated
+    show(`已移除 ${targets.length} 条最近文件记录`)
+  } catch (err) {
+    try {
+      recentFiles.value = await window.electronAPI.files.getRecent()
+    } catch {
+      recentFiles.value = []
+    }
+    show('移除最近文件记录失败。', 'error')
+    console.error('Failed to remove recent files in range:', err)
+  }
+}
+
 async function handleClearRecent(): Promise<void> {
   try {
     await window.electronAPI.files.clearRecent()
@@ -395,6 +447,7 @@ function handleDragLeave(): void {
 function handleDrop(event: DragEvent): void {
   dragDepth = 0
   isDraggingFile.value = false
+  if (!isFileDrag(event)) return
   const result = getDroppedMarkdownFilePath(
     Array.from(event.dataTransfer?.files ?? []),
     (file) => window.electronAPI.files.getPathForFile(file),
@@ -510,6 +563,70 @@ async function handleCloseListItem(id: string, kind: 'note' | 'file'): Promise<v
   })
   if (result === 'confirm') {
     await handleDelete(id)
+  }
+}
+
+async function handleCloseRange(range: DocumentCloseRange, id: string): Promise<void> {
+  const targets = resolveCloseRangeTargets(documentOrder.value, range, id)
+  if (targets.length === 0) return
+
+  if (selectedId.value !== null && targets.includes(selectedId.value)) {
+    if (!(await canLeaveCurrentNote())) return
+  }
+
+  const noteIds = targets.filter((item) => notes.value.some((note) => note.id === item))
+  const fileIds = targets.filter((item) => externalFiles.value.some((file) => file.id === item))
+
+  if (noteIds.length > 0) {
+    const summary = noteIds.length === 1
+      ? '该本地笔记将被永久删除'
+      : `将永久删除 ${noteIds.length} 个本地笔记`
+    const filePart = fileIds.length > 0 ? `，并关闭 ${fileIds.length} 个外部文件` : ''
+    const result = await requestConfirm({
+      title: '关闭标签',
+      message: `${summary}${filePart}。`,
+      confirmText: '关闭',
+      cancelText: '取消',
+      danger: true,
+    })
+    if (result !== 'confirm') return
+  }
+
+  const deletedNoteIds: string[] = []
+  try {
+    for (const noteId of noteIds) {
+      await window.electronAPI.notes.delete(noteId)
+      deletedNoteIds.push(noteId)
+    }
+  } catch (err) {
+    show('部分本地笔记删除失败。', 'error')
+    console.error('Failed to delete notes in range:', err)
+  }
+  notes.value = notes.value.filter((note) => !deletedNoteIds.includes(note.id))
+  externalFiles.value = externalFiles.value.filter((file) => !fileIds.includes(file.id))
+
+  const removedIds = [...deletedNoteIds, ...fileIds]
+  removeDocumentsFromOrder(removedIds)
+  if (selectedId.value !== null && removedIds.includes(selectedId.value)) {
+    selectFallbackDocument(selectedId.value)
+  }
+
+  if (removedIds.length > 0) {
+    const noteText = deletedNoteIds.length > 0 ? `已关闭 ${deletedNoteIds.length} 个本地笔记` : ''
+    const fileText = fileIds.length > 0 ? `已关闭 ${fileIds.length} 个外部文件` : ''
+    show([noteText, fileText].filter(Boolean).join('，'))
+  }
+}
+
+async function handleOpenInExplorer(filePath: string): Promise<void> {
+  try {
+    const revealed = await window.electronAPI.files.revealInFolder(filePath)
+    if (!revealed) {
+      show('无法在资源管理器中打开，文件可能已移动或删除。', 'error')
+    }
+  } catch (err) {
+    show('在资源管理器中打开失败。', 'error')
+    console.error('Failed to reveal file in folder:', err)
   }
 }
 
