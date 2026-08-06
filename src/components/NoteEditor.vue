@@ -229,6 +229,7 @@ import {
   resolveInputHistoryGroup,
   type EditorHistorySnapshot,
 } from '../utils/editorHistory'
+import { resolveDocumentSwitchMode } from '../utils/editorMode'
 
 const ImageSizeControl = defineAsyncComponent(() => import('./ImageSizeControl.vue'))
 const DocumentOutline = defineAsyncComponent(() => import('./DocumentOutline.vue'))
@@ -291,6 +292,8 @@ const scrollSync = useScrollSync({
   previewRef,
   enabled: syncEnabled,
 })
+let defaultModeApplied = false
+let scrollPaddingObserver: ResizeObserver | null = null
 let pendingSave: Promise<boolean> | null = null
 let editorSelection: {
   start: number
@@ -413,7 +416,12 @@ watch(
       savedTitle.value = newNote.title
       savedContent.value = newNote.content
       isDirty.value = false
-      editorMode.value = props.settings.defaultEditorMode
+      editorMode.value = resolveDocumentSwitchMode(
+        defaultModeApplied,
+        editorMode.value,
+        props.settings.defaultEditorMode,
+      )
+      defaultModeApplied = true
       selectedImageIndex.value = null
       editorSelection = null
       currentMatchIndex.value = 0
@@ -425,6 +433,10 @@ watch(
         selectionDirection: 'none',
       })
       pendingInputHistoryGroup = null
+      nextTick(() => {
+        syncEditorScrollPadding()
+        ensureScrollPaddingObserver()
+      })
       if (editorMode.value !== 'preview') {
         nextTick(() => textareaRef.value?.focus())
       }
@@ -462,10 +474,45 @@ watch(
   },
 )
 
+watch(
+  () => props.settings.editorFontSize,
+  () => {
+    nextTick(syncEditorScrollPadding)
+  },
+)
+
 watch([searchQuery, caseSensitive, wholeWord], () => {
   currentMatchIndex.value = 0
   replaceMessage.value = ''
 })
+
+const EDITOR_SCROLL_BOTTOM_MARGIN_PX = 8
+
+/**
+ * 让编辑区在内容未填满一页时也能向下滚动：为 textarea 增加一段与视口
+ * 高度接近的底部内边距，使滚动到末尾时正文最后一行位于顶部、下方留白。
+ */
+function syncEditorScrollPadding(): void {
+  const textarea = textareaRef.value
+  if (!textarea) return
+  const style = getComputedStyle(textarea)
+  const fontSize = parseFloat(style.fontSize) || 13.5
+  const lineHeight = parseFloat(style.lineHeight) || fontSize * 1.85
+  const paddingBottom = Math.max(
+    0,
+    textarea.clientHeight - lineHeight - EDITOR_SCROLL_BOTTOM_MARGIN_PX,
+  )
+  if (textarea.style.paddingBottom !== `${paddingBottom}px`) {
+    textarea.style.paddingBottom = `${paddingBottom}px`
+  }
+}
+
+function ensureScrollPaddingObserver(): void {
+  const textarea = textareaRef.value
+  if (!textarea || scrollPaddingObserver !== null) return
+  scrollPaddingObserver = new ResizeObserver(() => syncEditorScrollPadding())
+  scrollPaddingObserver.observe(textarea)
+}
 
 function markDirty(): void {
   isDirty.value = editTitle.value !== savedTitle.value
@@ -1125,6 +1172,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  scrollPaddingObserver?.disconnect()
+  scrollPaddingObserver = null
   window.removeEventListener('keydown', handleKeydown)
   document.removeEventListener('selectionchange', updateSelectedText)
   splitPane.cleanup()
