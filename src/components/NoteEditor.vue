@@ -197,6 +197,7 @@ import {
 } from '../utils/markdownImageSize'
 import { transformExternalImagePaths } from '../utils/externalFileImages'
 import { configureMarkdownSourceMap, findSourceLine } from '../utils/markdownSourceMap'
+import { configureMarkdownLatex } from '../utils/markdownLatex'
 import { useScrollSync } from '../composables/useScrollSync'
 import { useSplitPane } from '../composables/useSplitPane'
 import {
@@ -230,6 +231,7 @@ import {
   type EditorHistorySnapshot,
 } from '../utils/editorHistory'
 import { resolveDocumentSwitchMode } from '../utils/editorMode'
+import 'katex/dist/katex.min.css'
 
 const ImageSizeControl = defineAsyncComponent(() => import('./ImageSizeControl.vue'))
 const DocumentOutline = defineAsyncComponent(() => import('./DocumentOutline.vue'))
@@ -241,6 +243,7 @@ const md = new MarkdownIt({
 })
 configureMarkdownImageSizing(md)
 configureMarkdownSourceMap(md)
+configureMarkdownLatex(md)
 
 const ALLOWED_URI_REGEXP = /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|chmarkdown|chmarkdown-ext):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i
 
@@ -287,10 +290,11 @@ const splitPane = useSplitPane({
 const splitEditPaneStyle = splitPane.editPaneStyle
 const splitPaneResizing = computed(() => splitPane.state.isResizing)
 const splitPaneRatioPercent = computed(() => Math.round(splitPane.state.ratio * 100))
+const scrollSyncEnabled = computed(() => syncEnabled.value && editorMode.value === 'split')
 const scrollSync = useScrollSync({
   textareaRef,
   previewRef,
-  enabled: syncEnabled,
+  enabled: scrollSyncEnabled,
 })
 let defaultModeApplied = false
 let scrollPaddingObserver: ResizeObserver | null = null
@@ -477,9 +481,16 @@ watch(
 watch(
   () => props.settings.editorFontSize,
   () => {
-    nextTick(syncEditorScrollPadding)
+    nextTick(() => {
+      scrollSync.invalidateEditorMeasurement()
+      syncEditorScrollPadding()
+    })
   },
 )
+
+watch(editContent, () => {
+  scrollSync.invalidateEditorMeasurement()
+})
 
 watch([searchQuery, caseSensitive, wholeWord], () => {
   currentMatchIndex.value = 0
@@ -510,7 +521,10 @@ function syncEditorScrollPadding(): void {
 function ensureScrollPaddingObserver(): void {
   const textarea = textareaRef.value
   if (!textarea || scrollPaddingObserver !== null) return
-  scrollPaddingObserver = new ResizeObserver(() => syncEditorScrollPadding())
+  scrollPaddingObserver = new ResizeObserver(() => {
+    scrollSync.invalidateEditorMeasurement()
+    syncEditorScrollPadding()
+  })
   scrollPaddingObserver.observe(textarea)
 }
 
@@ -735,7 +749,6 @@ function navigateToHeading(line: number): void {
 }
 
 function handleEditorClick(event: MouseEvent): void {
-  if (!syncEnabled.value) return
   if (!(event.ctrlKey || event.metaKey)) return
   const line = scrollSync.getCurrentEditorLine()
   scrollSync.scrollPreviewToLine(line)
@@ -794,7 +807,7 @@ function handlePreviewClick(event: MouseEvent): void {
   }
 
   // Ctrl+Click: preview-to-editor sync
-  if (syncEnabled.value && (event.ctrlKey || event.metaKey)) {
+  if (event.ctrlKey || event.metaKey) {
     const sourceLine = findSourceLine(target)
     if (sourceLine !== null) {
       scrollSync.scrollEditorToLine(sourceLine)
@@ -1172,6 +1185,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  scrollSync.dispose()
   scrollPaddingObserver?.disconnect()
   scrollPaddingObserver = null
   window.removeEventListener('keydown', handleKeydown)

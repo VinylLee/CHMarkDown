@@ -338,4 +338,311 @@ describe('useScrollSync', () => {
       expect(() => highlightPreviewBlock(1)).not.toThrow()
     })
   })
+
+  describe('precise editor measurement', () => {
+    it('uses the measured line position when the layout mirror is available', () => {
+      const ta = createTextarea(Array(20).fill('x').join('\n'), 0)
+      ta.setAttribute('wrap', 'soft')
+      vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+        fontSize: '13.5px',
+        lineHeight: '25px',
+        paddingTop: '16px',
+        paddingRight: '18px',
+        paddingBottom: '16px',
+        paddingLeft: '18px',
+        fontFamily: 'monospace',
+        tabSize: '2',
+        letterSpacing: 'normal',
+      } as CSSStyleDeclaration)
+
+      // The mirror itself is laid out (top = 10px).
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
+        function (this: HTMLElement) {
+          const isMirror = this.firstChild
+            && this.firstChild.nodeType === Node.TEXT_NODE
+            && this.childNodes.length === 1
+          if (isMirror) {
+            return {
+              top: 10, bottom: 410, left: 0, right: 200,
+              width: 200, height: 400, x: 0, y: 10,
+              toJSON: () => ({}),
+            } as DOMRect
+          }
+          return {
+            top: 0, bottom: 0, left: 0, right: 0,
+            width: 0, height: 0, x: 0, y: 0,
+            toJSON: () => ({}),
+          } as DOMRect
+        },
+      )
+      // The measured line start sits at viewport top 410px => mirror Y = 400px.
+      vi.spyOn(document, 'createRange').mockReturnValue({
+        setStart: vi.fn(),
+        collapse: vi.fn(),
+        getBoundingClientRect: () => ({
+          top: 410, bottom: 410, left: 0, right: 1,
+          width: 1, height: 1, x: 0, y: 410,
+          toJSON: () => ({}),
+        }) as DOMRect,
+      } as unknown as Range)
+      textareaRef.value = ta
+
+      const { scrollEditorToLine, dispose } = useScrollSync({
+        textareaRef, previewRef, enabled,
+      })
+      scrollEditorToLine(10)
+      // measured targetY = 400, viewport 400/3 => offset = 400 - 133.33
+      expect(ta.scrollTop).toBeCloseTo(266.67, 1)
+      dispose()
+    })
+
+    it('falls back to line-height math when measurement is unavailable', () => {
+      const ta = createTextarea(Array(50).fill('x').join('\n'), 0)
+      vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+        fontSize: '13.5px',
+        lineHeight: '25px',
+        paddingTop: '16px',
+      } as CSSStyleDeclaration)
+      textareaRef.value = ta
+
+      const { scrollEditorToLine, dispose } = useScrollSync({
+        textareaRef, previewRef, enabled,
+      })
+      scrollEditorToLine(30)
+      expect(ta.scrollTop).toBeGreaterThan(500)
+      dispose()
+    })
+  })
+
+  describe('live sync scrolling', () => {
+    function createPreviewContainer(): HTMLElement {
+      const container = document.createElement('div')
+      vi.spyOn(container, 'clientHeight', 'get').mockReturnValue(600)
+      vi.spyOn(container, 'scrollHeight', 'get').mockReturnValue(2000)
+      vi.spyOn(container, 'getBoundingClientRect').mockReturnValue({
+        top: 100, bottom: 700, left: 0, right: 800,
+        width: 800, height: 600, x: 0, y: 100,
+        toJSON: () => ({}),
+      } as DOMRect)
+      container.scrollTop = 300
+      return container
+    }
+
+    function addPreviewLine(container: HTMLElement, line: number, top: number): void {
+      const element = document.createElement('p')
+      element.dataset.sourceLine = String(line)
+      vi.spyOn(element, 'getBoundingClientRect').mockReturnValue({
+        top, bottom: top + 50, left: 0, right: 800,
+        width: 800, height: 50, x: 0, y: top,
+        toJSON: () => ({}),
+      } as DOMRect)
+      container.appendChild(element)
+    }
+
+    async function flushFrames(): Promise<void> {
+      for (let i = 0; i < 2; i += 1) {
+        await new Promise<void>((resolve) => {
+          let settled = false
+          const done = (): void => {
+            if (!settled) {
+              settled = true
+              resolve()
+            }
+          }
+          if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(() => done())
+          }
+          setTimeout(done, 50)
+        })
+      }
+    }
+
+    it('syncs the preview when the editor scrolls', async () => {
+      const ta = createTextarea(Array(100).fill('line').join('\n'), 0)
+      vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+        fontSize: '13.5px',
+        lineHeight: '25px',
+        paddingTop: '16px',
+        paddingRight: '18px',
+        paddingBottom: '16px',
+        paddingLeft: '18px',
+        fontFamily: 'monospace',
+        tabSize: '2',
+        letterSpacing: 'normal',
+      } as CSSStyleDeclaration)
+      const container = createPreviewContainer()
+      addPreviewLine(container, 20, 600)
+      addPreviewLine(container, 25, 900)
+      addPreviewLine(container, 30, 1200)
+      textareaRef.value = ta
+      previewRef.value = container
+
+      const scrollSync = useScrollSync({ textareaRef, previewRef, enabled })
+      ta.scrollTop = 500
+      ta.dispatchEvent(new Event('scroll'))
+      await flushFrames()
+
+      // Editor anchor at 500 + 400/3 = 633 => fallback line 25.
+      // Preview target: 300 + 900 - 100 - 600/3 = 900
+      expect(container.scrollTop).toBe(900)
+      scrollSync.dispose()
+    })
+
+    it('keeps syncing while the editor scrolls continuously', async () => {
+      const ta = createTextarea(Array(100).fill('line').join('\n'), 0)
+      vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+        fontSize: '13.5px',
+        lineHeight: '25px',
+        paddingTop: '16px',
+        paddingRight: '18px',
+        paddingBottom: '16px',
+        paddingLeft: '18px',
+        fontFamily: 'monospace',
+        tabSize: '2',
+        letterSpacing: 'normal',
+      } as CSSStyleDeclaration)
+      const container = createPreviewContainer()
+      addPreviewLine(container, 20, 600)
+      addPreviewLine(container, 25, 900)
+      addPreviewLine(container, 30, 1200)
+      addPreviewLine(container, 40, 1600)
+      addPreviewLine(container, 50, 2000)
+      addPreviewLine(container, 60, 2400)
+      textareaRef.value = ta
+      previewRef.value = container
+
+      const scrollSync = useScrollSync({ textareaRef, previewRef, enabled })
+      ta.scrollTop = 1000
+      ta.dispatchEvent(new Event('scroll'))
+      await flushFrames()
+      const first = container.scrollTop
+
+      ta.scrollTop = 1400
+      ta.dispatchEvent(new Event('scroll'))
+      await flushFrames()
+      const second = container.scrollTop
+
+      // 连续滚动时每一步都应继续同步，预览位置持续前进。
+      expect(first).toBe(1600)
+      expect(second).toBeGreaterThan(first)
+      expect(second).toBeGreaterThan(1600)
+      scrollSync.dispose()
+    })
+
+    it('consumes the preview feedback scroll without syncing back', async () => {
+      const ta = createTextarea(Array(100).fill('line').join('\n'), 0)
+      vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+        fontSize: '13.5px',
+        lineHeight: '25px',
+        paddingTop: '16px',
+        paddingRight: '18px',
+        paddingBottom: '16px',
+        paddingLeft: '18px',
+        fontFamily: 'monospace',
+        tabSize: '2',
+        letterSpacing: 'normal',
+      } as CSSStyleDeclaration)
+      const container = createPreviewContainer()
+      addPreviewLine(container, 20, 600)
+      addPreviewLine(container, 25, 900)
+      addPreviewLine(container, 30, 1200)
+      textareaRef.value = ta
+      previewRef.value = container
+
+      const scrollSync = useScrollSync({ textareaRef, previewRef, enabled })
+      ta.scrollTop = 500
+      ta.dispatchEvent(new Event('scroll'))
+      await flushFrames()
+      const editorBefore = ta.scrollTop
+
+      // 编辑器滚动产生的预览反馈事件应被消费，不再反向滚动编辑器。
+      container.dispatchEvent(new Event('scroll'))
+      await flushFrames()
+      expect(ta.scrollTop).toBe(editorBefore)
+      scrollSync.dispose()
+    })
+
+    it('syncs the editor when the preview scrolls', async () => {
+      const ta = createTextarea(Array(100).fill('line').join('\n'), 0)
+      vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+        fontSize: '13.5px',
+        lineHeight: '25px',
+        paddingTop: '16px',
+        paddingRight: '18px',
+        paddingBottom: '16px',
+        paddingLeft: '18px',
+        fontFamily: 'monospace',
+        tabSize: '2',
+        letterSpacing: 'normal',
+      } as CSSStyleDeclaration)
+      const container = createPreviewContainer()
+      addPreviewLine(container, 10, 160)
+      addPreviewLine(container, 20, 290)
+      container.scrollTop = 400
+      textareaRef.value = ta
+      previewRef.value = container
+
+      const scrollSync = useScrollSync({ textareaRef, previewRef, enabled })
+      container.dispatchEvent(new Event('scroll'))
+      await flushFrames()
+
+      // Preview anchor at 100 + 600/3 = 300 => closest line 20.
+      // Editor line 20 targetY = 19*25+16 = 491 => offset 491 - 400/3 = 357.67
+      expect(ta.scrollTop).toBeCloseTo(357.67, 1)
+      scrollSync.dispose()
+    })
+
+    it('ignores feedback scrolls caused by programmatic sync', async () => {
+      const ta = createTextarea(Array(100).fill('line').join('\n'), 0)
+      vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+        fontSize: '13.5px',
+        lineHeight: '25px',
+        paddingTop: '16px',
+        paddingRight: '18px',
+        paddingBottom: '16px',
+        paddingLeft: '18px',
+        fontFamily: 'monospace',
+        tabSize: '2',
+        letterSpacing: 'normal',
+      } as CSSStyleDeclaration)
+      const container = createPreviewContainer()
+      addPreviewLine(container, 10, 160)
+      addPreviewLine(container, 20, 290)
+      textareaRef.value = ta
+      previewRef.value = container
+
+      const scrollSync = useScrollSync({ textareaRef, previewRef, enabled })
+      // Programmatic editor scroll is consumed as feedback on the next editor event.
+      scrollSync.scrollEditorToLine(20)
+      ta.dispatchEvent(new Event('scroll'))
+      await flushFrames()
+
+      // The editor scroll event arrived inside the suppression window,
+      // so the preview must not be moved.
+      expect(container.scrollTop).toBe(300)
+      scrollSync.dispose()
+    })
+
+    it('does not sync when disabled', async () => {
+      const ta = createTextarea(Array(100).fill('line').join('\n'), 0)
+      vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+        fontSize: '13.5px',
+        lineHeight: '25px',
+        paddingTop: '16px',
+      } as CSSStyleDeclaration)
+      const container = createPreviewContainer()
+      addPreviewLine(container, 20, 900)
+      enabled.value = false
+      textareaRef.value = ta
+      previewRef.value = container
+
+      const scrollSync = useScrollSync({ textareaRef, previewRef, enabled })
+      ta.scrollTop = 500
+      ta.dispatchEvent(new Event('scroll'))
+      await flushFrames()
+
+      expect(container.scrollTop).toBe(300)
+      scrollSync.dispose()
+    })
+  })
 })

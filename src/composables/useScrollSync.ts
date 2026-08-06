@@ -1,10 +1,12 @@
 import type { Ref } from 'vue'
+import { watch } from 'vue'
 import { findElementByLine } from '../utils/markdownSourceMap'
 
 const HIGHLIGHT_CLASS = 'source-line-highlight'
 const HIGHLIGHT_DURATION_MS = 1500
 const VIEWPORT_ANCHOR_RATIO = 1 / 3
 const EDGE_TOLERANCE_PX = 2
+const SMOOTH_NAVIGATION_SUPPRESS_MS = 800
 
 export interface ScrollPositionSnapshot {
   line: number | null
@@ -17,20 +19,20 @@ export interface UseScrollSyncOptions {
   textareaRef: Ref<HTMLTextAreaElement | null>
   /** Template ref to the preview container element */
   previewRef: Ref<HTMLElement | null>
-  /** Reactive flag controlling whether sync is active */
+  /** Reactive flag controlling whether live sync is active */
   enabled: Ref<boolean>
 }
 
 export interface UseScrollSyncReturn {
   /**
    * Scroll the preview pane so that the element corresponding to `line`
-   * is centered vertically.
+   * is centered vertically. Used for explicit navigation.
    */
   scrollPreviewToLine: (line: number) => void
 
   /**
    * Scroll the textarea so that `line` is visible in the upper third
-   * of the viewport.
+   * of the viewport. Uses precise editor layout measurement when available.
    */
   scrollEditorToLine: (line: number) => void
 
@@ -54,10 +56,38 @@ export interface UseScrollSyncReturn {
 
   /** Restore a preview viewport captured before a mode switch. */
   restorePreviewPosition: (position: ScrollPositionSnapshot | null) => void
+
+  /** Invalidate the cached editor layout measurement (call when content or metrics change). */
+  invalidateEditorMeasurement: () => void
+
+  /** Detach live scroll listeners and remove the measurement mirror. */
+  dispose: () => void
+}
+
+interface EditorMirrorState {
+  signature: string
+  lineStartOffsets: number[]
 }
 
 export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncReturn {
   let previewHighlightTimer: ReturnType<typeof setTimeout> | null = null
+  let pendingFeedbackSource: 'editor' | 'preview' | null = null
+  let navigationSuppressUntil = 0
+  let scrollListenersAttached = false
+  let editorSyncFrame: number | null = null
+  let previewSyncFrame: number | null = null
+  let editorMirror: HTMLDivElement | null = null
+  let editorMirrorState: EditorMirrorState | null = null
+
+  const requestFrame = typeof requestAnimationFrame === 'function'
+    ? (callback: FrameRequestCallback) => requestAnimationFrame(callback)
+    : (callback: FrameRequestCallback) => {
+      callback(0)
+      return 0
+    }
+  const cancelFrame = typeof cancelAnimationFrame === 'function'
+    ? (id: number) => cancelAnimationFrame(id)
+    : () => {}
 
   function getMaxScroll(element: HTMLElement): number {
     return Math.max(0, element.scrollHeight - element.clientHeight)
@@ -80,21 +110,33 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
     return { line, ratio, edge }
   }
 
+  function applyScroll(
+    element: HTMLElement,
+    scrollTop: number,
+    source: 'editor' | 'preview',
+  ): void {
+    if (Math.abs(element.scrollTop - scrollTop) < 1) return
+    pendingFeedbackSource = source
+    // 浏览器会自动把 scrollTop 限制在有效滚动范围内。
+    element.scrollTop = scrollTop
+  }
+
   function restoreFallbackPosition(
     element: HTMLElement,
     position: ScrollPositionSnapshot,
+    source: 'editor' | 'preview',
   ): boolean {
     const maxScroll = getMaxScroll(element)
     if (position.edge === 'start') {
-      element.scrollTop = 0
+      applyScroll(element, 0, source)
       return true
     }
     if (position.edge === 'end') {
-      element.scrollTop = maxScroll
+      applyScroll(element, maxScroll, source)
       return true
     }
     if (position.line === null) {
-      element.scrollTop = maxScroll * position.ratio
+      applyScroll(element, maxScroll * position.ratio, source)
       return true
     }
     return false
@@ -109,11 +151,185 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
     return 1.85 * fontSize
   }
 
+  function getPaddingTop(textarea: HTMLTextAreaElement): number {
+    return parseFloat(getComputedStyle(textarea).paddingTop) || 16
+  }
+
+  function wrapsTextarea(textarea: HTMLTextAreaElement): boolean {
+    return textarea.wrap !== 'off'
+  }
+
+  function computeLineStartOffsets(content: string): number[] {
+    const offsets: number[] = [0]
+    for (let i = 0; i < content.length; i += 1) {
+      if (content.charCodeAt(i) === 10) offsets.push(i + 1)
+    }
+    return offsets
+  }
+
+  function getEditorMirror(textarea: HTMLTextAreaElement): HTMLDivElement | null {
+    if (!editorMirror) {
+      const mirror = document.createElement('div')
+      mirror.setAttribute('aria-hidden', 'true')
+      mirror.style.position = 'fixed'
+      mirror.style.left = '-100000px'
+      mirror.style.top = '0'
+      mirror.style.visibility = 'hidden'
+      mirror.style.pointerEvents = 'none'
+      mirror.style.whiteSpace = 'pre-wrap'
+      mirror.style.overflowWrap = 'break-word'
+      mirror.style.zIndex = '-1'
+      document.body.appendChild(mirror)
+      editorMirror = mirror
+    }
+    return editorMirror
+  }
+
+  function refreshEditorMirror(textarea: HTMLTextAreaElement): void {
+    const mirror = getEditorMirror(textarea)
+    if (!mirror) return
+    const style = getComputedStyle(textarea)
+    const contentWidth = Math.max(
+      0,
+      textarea.clientWidth
+        - (parseFloat(style.paddingLeft) || 0)
+        - (parseFloat(style.paddingRight) || 0),
+    )
+    const signature = [
+      contentWidth,
+      style.fontFamily,
+      style.fontSize,
+      style.lineHeight,
+      style.paddingTop,
+      style.paddingRight,
+      style.paddingBottom,
+      style.paddingLeft,
+      style.tabSize,
+      style.letterSpacing,
+    ].join('|')
+    mirror.textContent = textarea.value
+    mirror.style.width = `${contentWidth}px`
+    mirror.style.fontFamily = style.fontFamily
+    mirror.style.fontSize = style.fontSize
+    mirror.style.lineHeight = style.lineHeight
+    mirror.style.padding = `${style.paddingTop} ${style.paddingRight} ${style.paddingBottom} ${style.paddingLeft}`
+    mirror.style.tabSize = style.tabSize
+    mirror.style.letterSpacing = style.letterSpacing
+    editorMirrorState = {
+      signature,
+      lineStartOffsets: computeLineStartOffsets(textarea.value),
+    }
+  }
+
+  function ensureEditorMirrorFresh(textarea: HTMLTextAreaElement): void {
+    if (editorMirrorState === null) {
+      refreshEditorMirror(textarea)
+      return
+    }
+    const style = getComputedStyle(textarea)
+    const contentWidth = Math.max(
+      0,
+      textarea.clientWidth
+        - (parseFloat(style.paddingLeft) || 0)
+        - (parseFloat(style.paddingRight) || 0),
+    )
+    const signature = [
+      contentWidth,
+      style.fontFamily,
+      style.fontSize,
+      style.lineHeight,
+      style.paddingTop,
+      style.paddingRight,
+      style.paddingBottom,
+      style.paddingLeft,
+      style.tabSize,
+      style.letterSpacing,
+    ].join('|')
+    if (editorMirrorState.signature !== signature) {
+      refreshEditorMirror(textarea)
+    }
+  }
+
+  /**
+   * Measure the pixel Y position of the start of a 1-based source line in
+   * the editor, using a hidden layout mirror that wraps exactly like the
+   * textarea. Returns null when measurement is unavailable.
+   */
+  function measureEditorLineY(
+    textarea: HTMLTextAreaElement,
+    line: number,
+  ): number | null {
+    if (!wrapsTextarea(textarea)) return null
+    ensureEditorMirrorFresh(textarea)
+    const mirror = editorMirror
+    const state = editorMirrorState
+    if (!mirror || !state) return null
+    if (line < 1 || line > state.lineStartOffsets.length) return null
+
+    const textNode = mirror.firstChild
+    if (!textNode) return line === 1 ? 0 : null
+    const offset = Math.min(state.lineStartOffsets[line - 1], mirror.textContent?.length ?? 0)
+    const range = document.createRange()
+    range.setStart(textNode, offset)
+    range.collapse(true)
+    if (typeof range.getBoundingClientRect !== 'function') return null
+    const rect = range.getBoundingClientRect()
+    const mirrorRect = mirror.getBoundingClientRect()
+    if (mirrorRect.width === 0 && mirrorRect.height === 0) return null
+    return Math.max(0, rect.top - mirrorRect.top)
+  }
+
+  function computeEditorAnchorLine(textarea: HTMLTextAreaElement): number {
+    const anchorY = textarea.scrollTop + textarea.clientHeight * VIEWPORT_ANCHOR_RATIO
+    const lineCount = textarea.value.split('\n').length
+
+    const fallbackMath = (): number => {
+      const lineHeight = getLineHeight(textarea)
+      const paddingTop = getPaddingTop(textarea)
+      return Math.max(
+        1,
+        Math.min(lineCount, Math.floor((anchorY - paddingTop) / lineHeight) + 1),
+      )
+    }
+
+    if (!wrapsTextarea(textarea)) return fallbackMath()
+
+    const firstLineY = measureEditorLineY(textarea, 1)
+    if (firstLineY === null) return fallbackMath()
+
+    let lo = 1
+    let hi = lineCount
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2)
+      const midY = measureEditorLineY(textarea, mid) ?? firstLineY
+      if (midY <= anchorY) {
+        lo = mid
+      } else {
+        hi = mid - 1
+      }
+    }
+    return lo
+  }
+
+  function scrollPreviewToLineAtAnchor(line: number): void {
+    const container = options.previewRef.value
+    if (!container) return
+    const element = findElementByLine(container, line)
+    if (!element) return
+
+    const containerRect = container.getBoundingClientRect()
+    const elementRect = element.getBoundingClientRect()
+    const anchorOffset = container.clientHeight * VIEWPORT_ANCHOR_RATIO
+    const target = container.scrollTop + elementRect.top - containerRect.top - anchorOffset
+    applyScroll(container, target, 'preview')
+  }
+
   function scrollPreviewToLine(line: number): void {
     const container = options.previewRef.value
     if (!container) return
     const element = findElementByLine(container, line)
     if (!element) return
+    navigationSuppressUntil = Date.now() + SMOOTH_NAVIGATION_SUPPRESS_MS
     element.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }
 
@@ -121,15 +337,13 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
     const textarea = options.textareaRef.value
     if (!textarea) return
 
-    const computedLineHeight = getLineHeight(textarea)
-    const paddingTop = parseFloat(getComputedStyle(textarea).paddingTop) || 16
-
-    // line is 1-based; scroll to show it in the upper third
-    const targetY = (line - 1) * computedLineHeight + paddingTop
+    const measuredY = measureEditorLineY(textarea, line)
+    const targetY = measuredY ?? (
+      (line - 1) * getLineHeight(textarea) + getPaddingTop(textarea)
+    )
     const viewportHeight = textarea.clientHeight
-    const offset = Math.max(0, targetY - viewportHeight / 3)
-
-    textarea.scrollTop = offset
+    const offset = Math.max(0, targetY - viewportHeight * VIEWPORT_ANCHOR_RATIO)
+    applyScroll(textarea, offset, 'editor')
   }
 
   function getCurrentEditorLine(): number {
@@ -142,19 +356,11 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
   function captureEditorPosition(): ScrollPositionSnapshot | null {
     const textarea = options.textareaRef.value
     if (!textarea) return null
-
-    const computedLineHeight = getLineHeight(textarea)
-    const paddingTop = parseFloat(getComputedStyle(textarea).paddingTop) || 16
-    const anchorY = textarea.scrollTop + textarea.clientHeight * VIEWPORT_ANCHOR_RATIO
-    const line = Math.max(1, Math.floor((anchorY - paddingTop) / computedLineHeight) + 1)
-    const lineCount = textarea.value.split('\n').length
-    return getScrollPosition(textarea, Math.min(line, lineCount))
+    const line = computeEditorAnchorLine(textarea)
+    return getScrollPosition(textarea, line)
   }
 
-  function capturePreviewPosition(): ScrollPositionSnapshot | null {
-    const container = options.previewRef.value
-    if (!container) return null
-
+  function findPreviewAnchorLine(container: HTMLElement): number | null {
     const containerRect = container.getBoundingClientRect()
     const anchorY = containerRect.top + container.clientHeight * VIEWPORT_ANCHOR_RATIO
     const elements = container.querySelectorAll<HTMLElement>('[data-source-line]')
@@ -182,13 +388,19 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
       }
     }
 
-    return getScrollPosition(container, closestLine)
+    return closestLine
+  }
+
+  function capturePreviewPosition(): ScrollPositionSnapshot | null {
+    const container = options.previewRef.value
+    if (!container) return null
+    return getScrollPosition(container, findPreviewAnchorLine(container))
   }
 
   function restoreEditorPosition(position: ScrollPositionSnapshot | null): void {
     const textarea = options.textareaRef.value
     if (!textarea || !position) return
-    if (restoreFallbackPosition(textarea, position)) return
+    if (restoreFallbackPosition(textarea, position, 'editor')) return
     if (position.line !== null) {
       scrollEditorToLine(position.line)
     }
@@ -197,12 +409,12 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
   function restorePreviewPosition(position: ScrollPositionSnapshot | null): void {
     const container = options.previewRef.value
     if (!container || !position) return
-    if (restoreFallbackPosition(container, position)) return
+    if (restoreFallbackPosition(container, position, 'preview')) return
     if (position.line === null) return
 
     const element = findElementByLine(container, position.line)
     if (!element) {
-      container.scrollTop = getMaxScroll(container) * position.ratio
+      applyScroll(container, getMaxScroll(container) * position.ratio, 'preview')
       return
     }
 
@@ -210,7 +422,7 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
     const elementRect = element.getBoundingClientRect()
     const anchorOffset = container.clientHeight * VIEWPORT_ANCHOR_RATIO
     const target = container.scrollTop + elementRect.top - containerRect.top - anchorOffset
-    container.scrollTop = Math.min(getMaxScroll(container), Math.max(0, target))
+    applyScroll(container, target, 'preview')
   }
 
   function highlightEditorLine(line: number): void {
@@ -220,7 +432,7 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
     if (line < 1 || line > lines.length) return
 
     let charStart = 0
-    for (let i = 0; i < line - 1; i++) {
+    for (let i = 0; i < line - 1; i += 1) {
       charStart += lines[i].length + 1 // +1 for the newline character
     }
     const charEnd = charStart + lines[line - 1].length
@@ -235,13 +447,11 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
     const element = findElementByLine(container, line)
     if (!element) return
 
-    // Clear previous timer
     if (previewHighlightTimer !== null) {
       clearTimeout(previewHighlightTimer)
       previewHighlightTimer = null
     }
 
-    // Remove class from any previously highlighted element
     const prev = container.querySelector(`.${HIGHLIGHT_CLASS}`)
     if (prev) prev.classList.remove(HIGHLIGHT_CLASS)
 
@@ -250,6 +460,94 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
       element.classList.remove(HIGHLIGHT_CLASS)
       previewHighlightTimer = null
     }, HIGHLIGHT_DURATION_MS)
+  }
+
+  function syncPreviewFromEditor(): void {
+    const textarea = options.textareaRef.value
+    const container = options.previewRef.value
+    if (!textarea || !container) return
+    scrollPreviewToLineAtAnchor(computeEditorAnchorLine(textarea))
+  }
+
+  function syncEditorFromPreview(): void {
+    const textarea = options.textareaRef.value
+    const container = options.previewRef.value
+    if (!textarea || !container) return
+    const line = findPreviewAnchorLine(container)
+    if (line !== null) scrollEditorToLine(line)
+  }
+
+  function handleEditorScroll(): void {
+    if (Date.now() < navigationSuppressUntil) return
+    if (pendingFeedbackSource === 'editor') {
+      pendingFeedbackSource = null
+      return
+    }
+    if (editorSyncFrame !== null) return
+    editorSyncFrame = requestFrame(() => {
+      editorSyncFrame = null
+      syncPreviewFromEditor()
+    })
+  }
+
+  function handlePreviewScroll(): void {
+    if (Date.now() < navigationSuppressUntil) return
+    if (pendingFeedbackSource === 'preview') {
+      pendingFeedbackSource = null
+      return
+    }
+    if (previewSyncFrame !== null) return
+    previewSyncFrame = requestFrame(() => {
+      previewSyncFrame = null
+      syncEditorFromPreview()
+    })
+  }
+
+  function detachScrollListeners(): void {
+    if (!scrollListenersAttached) return
+    const textarea = options.textareaRef.value
+    const container = options.previewRef.value
+    textarea?.removeEventListener('scroll', handleEditorScroll)
+    container?.removeEventListener('scroll', handlePreviewScroll)
+    scrollListenersAttached = false
+  }
+
+  function refreshScrollListeners(): void {
+    detachScrollListeners()
+    if (!options.enabled.value) return
+    const textarea = options.textareaRef.value
+    const container = options.previewRef.value
+    if (!textarea || !container) return
+    textarea.addEventListener('scroll', handleEditorScroll)
+    container.addEventListener('scroll', handlePreviewScroll)
+    scrollListenersAttached = true
+  }
+
+  watch(
+    [options.enabled, options.textareaRef, options.previewRef],
+    refreshScrollListeners,
+    { immediate: true },
+  )
+
+  function invalidateEditorMeasurement(): void {
+    editorMirrorState = null
+  }
+
+  function dispose(): void {
+    detachScrollListeners()
+    if (editorSyncFrame !== null) {
+      cancelFrame(editorSyncFrame)
+      editorSyncFrame = null
+    }
+    if (previewSyncFrame !== null) {
+      cancelFrame(previewSyncFrame)
+      previewSyncFrame = null
+    }
+    if (editorMirror) {
+      editorMirror.remove()
+      editorMirror = null
+    }
+    editorMirrorState = null
   }
 
   return {
@@ -262,5 +560,7 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
     capturePreviewPosition,
     restoreEditorPosition,
     restorePreviewPosition,
+    invalidateEditorMeasurement,
+    dispose,
   }
 }
