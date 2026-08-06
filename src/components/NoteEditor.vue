@@ -196,7 +196,7 @@ import {
   updateMarkdownImageWidth,
 } from '../utils/markdownImageSize'
 import { transformExternalImagePaths } from '../utils/externalFileImages'
-import { configureMarkdownSourceMap, findSourceLine } from '../utils/markdownSourceMap'
+import { configureMarkdownSourceMap, resolveSourceLineFromPreviewClick } from '../utils/markdownSourceMap'
 import { configureMarkdownLatex } from '../utils/markdownLatex'
 import { useScrollSync } from '../composables/useScrollSync'
 import { useSplitPane } from '../composables/useSplitPane'
@@ -328,7 +328,13 @@ const renderedMarkdown = computed(() => {
   })
   return DOMPurify.sanitize(raw, {
     ALLOWED_URI_REGEXP,
-    ADD_ATTR: ['style', 'data-image-index', 'data-image-width', 'data-source-line'],
+    ADD_ATTR: [
+      'style',
+      'data-image-index',
+      'data-image-width',
+      'data-source-line',
+      'data-source-end-line',
+    ],
   })
 })
 
@@ -748,9 +754,13 @@ function navigateToHeading(line: number): void {
   scrollSync.highlightPreviewBlock(line)
 }
 
-function handleEditorClick(event: MouseEvent): void {
+async function handleEditorClick(event: MouseEvent): Promise<void> {
   if (!(event.ctrlKey || event.metaKey)) return
   const line = scrollSync.getCurrentEditorLine()
+  // 纯编辑模式下预览区不可见，先切到分栏再定位。
+  if (editorMode.value === 'edit') {
+    await setEditorMode('split')
+  }
   scrollSync.scrollPreviewToLine(line)
   scrollSync.highlightPreviewBlock(line)
 }
@@ -788,7 +798,7 @@ function clearImageSelection(): void {
   selectedImageIndex.value = null
 }
 
-function handlePreviewClick(event: MouseEvent): void {
+async function handlePreviewClick(event: MouseEvent): Promise<void> {
   const target = event.target
   if (!(target instanceof HTMLElement)) {
     clearImageSelection()
@@ -808,10 +818,19 @@ function handlePreviewClick(event: MouseEvent): void {
 
   // Ctrl+Click: preview-to-editor sync
   if (event.ctrlKey || event.metaKey) {
-    const sourceLine = findSourceLine(target)
+    // 避免破坏链接、按钮、输入控件的默认交互。
+    if (target.closest('a[href], button, input, textarea, select')) {
+      clearImageSelection()
+      return
+    }
+    const sourceLine = resolveSourceLineFromPreviewClick(target, event.clientY)
     if (sourceLine !== null) {
-      scrollSync.scrollEditorToLine(sourceLine)
-      scrollSync.highlightEditorLine(sourceLine)
+      event.preventDefault()
+      // 纯预览模式下编辑区不可见，先切到分栏再定位。
+      if (editorMode.value === 'preview') {
+        await setEditorMode('split')
+      }
+      scrollSync.revealEditorLine(sourceLine)
     }
   }
 

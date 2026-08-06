@@ -340,6 +340,50 @@ describe('useScrollSync', () => {
   })
 
   describe('precise editor measurement', () => {
+    it('keeps the mirror text width aligned with the textarea content box', () => {
+      const ta = createTextarea(Array(20).fill('x').join('\n'), 0)
+      vi.spyOn(ta, 'clientWidth', 'get').mockReturnValue(800)
+      vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+        fontSize: '13.5px',
+        lineHeight: '25px',
+        paddingTop: '16px',
+        paddingRight: '18px',
+        paddingBottom: '16px',
+        paddingLeft: '18px',
+        fontFamily: 'monospace',
+        fontWeight: '400',
+        fontStyle: 'normal',
+        letterSpacing: 'normal',
+        wordSpacing: 'normal',
+        tabSize: '2',
+        textTransform: 'none',
+        whiteSpace: 'pre-wrap',
+        overflowWrap: 'break-word',
+        wordBreak: 'normal',
+      } as CSSStyleDeclaration)
+      textareaRef.value = ta
+
+      const { scrollEditorToLine, dispose } = useScrollSync({
+        textareaRef, previewRef, enabled,
+      })
+      scrollEditorToLine(1)
+
+      const mirror = Array.from(document.body.children).reverse().find(
+        (d) => d instanceof HTMLDivElement
+          && d.style.position === 'fixed'
+          && d.style.left === '-100000px',
+      ) as HTMLDivElement | undefined
+      expect(mirror).toBeDefined()
+      // 镜像必须用 content-box：width 已是扣除左右 padding 的内容宽度。
+      expect(mirror!.style.boxSizing).toBe('content-box')
+      expect(mirror!.style.width).toBe('764px')
+      expect(mirror!.style.padding).toBe('16px 18px')
+      expect(mirror!.style.fontFamily).toBe('monospace')
+      expect(mirror!.style.whiteSpace).toBe('pre-wrap')
+      expect(mirror!.style.overflowWrap).toBe('break-word')
+      dispose()
+    })
+
     it('uses the measured line position when the layout mirror is available', () => {
       const ta = createTextarea(Array(20).fill('x').join('\n'), 0)
       ta.setAttribute('wrap', 'soft')
@@ -410,6 +454,68 @@ describe('useScrollSync', () => {
       })
       scrollEditorToLine(30)
       expect(ta.scrollTop).toBeGreaterThan(500)
+      dispose()
+    })
+  })
+
+  describe('revealEditorLine', () => {
+    async function flushFrames(): Promise<void> {
+      for (let i = 0; i < 2; i += 1) {
+        await new Promise<void>((resolve) => {
+          let settled = false
+          const done = (): void => {
+            if (!settled) {
+              settled = true
+              resolve()
+            }
+          }
+          if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(() => done())
+          }
+          setTimeout(done, 50)
+        })
+      }
+    }
+
+    it('focuses with preventScroll, selects the line, then scrolls on the next frame', async () => {
+      const ta = createTextarea(Array(50).fill('xxxxx').join('\n'), 0)
+      vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+        fontSize: '13.5px',
+        lineHeight: '25px',
+        paddingTop: '16px',
+        paddingRight: '18px',
+        paddingBottom: '16px',
+        paddingLeft: '18px',
+        fontFamily: 'monospace',
+        fontWeight: '400',
+        fontStyle: 'normal',
+        letterSpacing: 'normal',
+        wordSpacing: 'normal',
+        tabSize: '2',
+        textTransform: 'none',
+        whiteSpace: 'pre-wrap',
+        overflowWrap: 'break-word',
+        wordBreak: 'normal',
+      } as CSSStyleDeclaration)
+      textareaRef.value = ta
+      const focusSpy = vi.spyOn(ta, 'focus')
+      const selectionSpy = vi.spyOn(ta, 'setSelectionRange')
+
+      const { revealEditorLine, dispose } = useScrollSync({
+        textareaRef, previewRef, enabled,
+      })
+      revealEditorLine(30)
+
+      expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true })
+      expect(selectionSpy).toHaveBeenCalledWith(174, 179)
+      expect(focusSpy.mock.invocationCallOrder[0])
+        .toBeLessThan(selectionSpy.mock.invocationCallOrder[0])
+      // 最终滚动被推迟到下一帧，此时尚未执行。
+      expect(ta.scrollTop).toBe(0)
+
+      await flushFrames()
+      // targetY = 29*25 + 16 = 741，offset = 741 - 400/3 = 607.67
+      expect(ta.scrollTop).toBeCloseTo(607.67, 1)
       dispose()
     })
   })

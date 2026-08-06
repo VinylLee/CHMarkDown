@@ -57,6 +57,13 @@ export interface UseScrollSyncReturn {
   /** Restore a preview viewport captured before a mode switch. */
   restorePreviewPosition: (position: ScrollPositionSnapshot | null) => void
 
+  /**
+   * Select `line` in the textarea and scroll it into the upper third of the
+   * viewport. Focus/selection happen before the final scroll so the browser
+   * cannot re-adjust the scroll position afterwards.
+   */
+  revealEditorLine: (line: number) => void
+
   /** Invalidate the cached editor layout measurement (call when content or metrics change). */
   invalidateEditorMeasurement: () => void
 
@@ -185,6 +192,35 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
     return editorMirror
   }
 
+  function getEditorMirrorSignature(textarea: HTMLTextAreaElement): string {
+    const style = getComputedStyle(textarea)
+    const contentWidth = Math.max(
+      0,
+      textarea.clientWidth
+        - (parseFloat(style.paddingLeft) || 0)
+        - (parseFloat(style.paddingRight) || 0),
+    )
+    return [
+      contentWidth,
+      style.fontFamily,
+      style.fontSize,
+      style.fontWeight,
+      style.fontStyle,
+      style.lineHeight,
+      style.letterSpacing,
+      style.wordSpacing,
+      style.tabSize,
+      style.textTransform,
+      style.whiteSpace,
+      style.overflowWrap,
+      style.wordBreak,
+      style.paddingTop,
+      style.paddingRight,
+      style.paddingBottom,
+      style.paddingLeft,
+    ].join('|')
+  }
+
   function refreshEditorMirror(textarea: HTMLTextAreaElement): void {
     const mirror = getEditorMirror(textarea)
     if (!mirror) return
@@ -195,28 +231,27 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
         - (parseFloat(style.paddingLeft) || 0)
         - (parseFloat(style.paddingRight) || 0),
     )
-    const signature = [
-      contentWidth,
-      style.fontFamily,
-      style.fontSize,
-      style.lineHeight,
-      style.paddingTop,
-      style.paddingRight,
-      style.paddingBottom,
-      style.paddingLeft,
-      style.tabSize,
-      style.letterSpacing,
-    ].join('|')
     mirror.textContent = textarea.value
+    // 全局 `* { box-sizing: border-box }` 会使镜像的 padding 占用 width。
+    // 这里 width 已减去左右 padding，因此镜像必须是 content-box 才能与
+    // textarea 的真实文本区域宽度一致。
+    mirror.style.boxSizing = 'content-box'
     mirror.style.width = `${contentWidth}px`
     mirror.style.fontFamily = style.fontFamily
     mirror.style.fontSize = style.fontSize
+    mirror.style.fontWeight = style.fontWeight
+    mirror.style.fontStyle = style.fontStyle
     mirror.style.lineHeight = style.lineHeight
-    mirror.style.padding = `${style.paddingTop} ${style.paddingRight} ${style.paddingBottom} ${style.paddingLeft}`
-    mirror.style.tabSize = style.tabSize
     mirror.style.letterSpacing = style.letterSpacing
+    mirror.style.wordSpacing = style.wordSpacing
+    mirror.style.tabSize = style.tabSize
+    mirror.style.textTransform = style.textTransform
+    mirror.style.whiteSpace = style.whiteSpace || 'pre-wrap'
+    mirror.style.overflowWrap = style.overflowWrap || 'break-word'
+    mirror.style.wordBreak = style.wordBreak
+    mirror.style.padding = `${style.paddingTop} ${style.paddingRight} ${style.paddingBottom} ${style.paddingLeft}`
     editorMirrorState = {
-      signature,
+      signature: getEditorMirrorSignature(textarea),
       lineStartOffsets: computeLineStartOffsets(textarea.value),
     }
   }
@@ -226,26 +261,7 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
       refreshEditorMirror(textarea)
       return
     }
-    const style = getComputedStyle(textarea)
-    const contentWidth = Math.max(
-      0,
-      textarea.clientWidth
-        - (parseFloat(style.paddingLeft) || 0)
-        - (parseFloat(style.paddingRight) || 0),
-    )
-    const signature = [
-      contentWidth,
-      style.fontFamily,
-      style.fontSize,
-      style.lineHeight,
-      style.paddingTop,
-      style.paddingRight,
-      style.paddingBottom,
-      style.paddingLeft,
-      style.tabSize,
-      style.letterSpacing,
-    ].join('|')
-    if (editorMirrorState.signature !== signature) {
+    if (editorMirrorState.signature !== getEditorMirrorSignature(textarea)) {
       refreshEditorMirror(textarea)
     }
   }
@@ -425,19 +441,42 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
     applyScroll(container, target, 'preview')
   }
 
-  function highlightEditorLine(line: number): void {
-    const textarea = options.textareaRef.value
-    if (!textarea) return
+  function computeLineCharRange(
+    textarea: HTMLTextAreaElement,
+    line: number,
+  ): { start: number; end: number } | null {
     const lines = textarea.value.split('\n')
-    if (line < 1 || line > lines.length) return
-
+    if (line < 1 || line > lines.length) return null
     let charStart = 0
     for (let i = 0; i < line - 1; i += 1) {
       charStart += lines[i].length + 1 // +1 for the newline character
     }
-    const charEnd = charStart + lines[line - 1].length
-    textarea.setSelectionRange(charStart, charEnd)
+    return { start: charStart, end: charStart + lines[line - 1].length }
+  }
+
+  function highlightEditorLine(line: number): void {
+    const textarea = options.textareaRef.value
+    if (!textarea) return
+    const range = computeLineCharRange(textarea, line)
+    if (!range) return
+    textarea.setSelectionRange(range.start, range.end)
     textarea.focus()
+  }
+
+  function revealEditorLine(line: number): void {
+    const textarea = options.textareaRef.value
+    if (!textarea) return
+    const range = computeLineCharRange(textarea, line)
+    if (!range) return
+
+    // 先聚焦并选中，再在下一帧滚动，避免浏览器因 selection/focus
+    // 自动调整 textarea 的滚动位置而覆盖我们设置的目标位置。
+    textarea.focus({ preventScroll: true })
+    textarea.setSelectionRange(range.start, range.end)
+
+    requestFrame(() => {
+      scrollEditorToLine(line)
+    })
   }
 
   function highlightPreviewBlock(line: number): void {
@@ -560,6 +599,7 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
     capturePreviewPosition,
     restoreEditorPosition,
     restorePreviewPosition,
+    revealEditorLine,
     invalidateEditorMeasurement,
     dispose,
   }
