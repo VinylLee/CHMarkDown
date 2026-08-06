@@ -78,7 +78,7 @@ interface EditorMirrorState {
 
 export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncReturn {
   let previewHighlightTimer: ReturnType<typeof setTimeout> | null = null
-  let pendingFeedbackSource: 'editor' | 'preview' | null = null
+  const programmaticScrollTargets = new Map<HTMLElement, number>()
   let navigationSuppressUntil = 0
   let scrollListenersAttached = false
   let editorSyncFrame: number | null = null
@@ -120,30 +120,42 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
   function applyScroll(
     element: HTMLElement,
     scrollTop: number,
-    source: 'editor' | 'preview',
   ): void {
     if (Math.abs(element.scrollTop - scrollTop) < 1) return
-    pendingFeedbackSource = source
+    programmaticScrollTargets.set(element, scrollTop)
     // 浏览器会自动把 scrollTop 限制在有效滚动范围内。
     element.scrollTop = scrollTop
+  }
+
+  /**
+   * 判断当前滚动事件是否是我们程序化滚动产生的反馈事件。
+   * 只有元素当前位置与我们设置的目标一致时才消费；用户随后手动滚动到
+   * 其他位置时不会被误吞。
+   */
+  function consumeProgrammaticFeedback(element: HTMLElement | null): boolean {
+    if (!element) return false
+    const target = programmaticScrollTargets.get(element)
+    if (target === undefined) return false
+    if (Math.abs(element.scrollTop - target) >= 1) return false
+    programmaticScrollTargets.delete(element)
+    return true
   }
 
   function restoreFallbackPosition(
     element: HTMLElement,
     position: ScrollPositionSnapshot,
-    source: 'editor' | 'preview',
   ): boolean {
     const maxScroll = getMaxScroll(element)
     if (position.edge === 'start') {
-      applyScroll(element, 0, source)
+      applyScroll(element, 0)
       return true
     }
     if (position.edge === 'end') {
-      applyScroll(element, maxScroll, source)
+      applyScroll(element, maxScroll)
       return true
     }
     if (position.line === null) {
-      applyScroll(element, maxScroll * position.ratio, source)
+      applyScroll(element, maxScroll * position.ratio)
       return true
     }
     return false
@@ -337,7 +349,7 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
     const elementRect = element.getBoundingClientRect()
     const anchorOffset = container.clientHeight * VIEWPORT_ANCHOR_RATIO
     const target = container.scrollTop + elementRect.top - containerRect.top - anchorOffset
-    applyScroll(container, target, 'preview')
+    applyScroll(container, target)
   }
 
   function scrollPreviewToLine(line: number): void {
@@ -359,7 +371,7 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
     )
     const viewportHeight = textarea.clientHeight
     const offset = Math.max(0, targetY - viewportHeight * VIEWPORT_ANCHOR_RATIO)
-    applyScroll(textarea, offset, 'editor')
+    applyScroll(textarea, offset)
   }
 
   function getCurrentEditorLine(): number {
@@ -416,7 +428,7 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
   function restoreEditorPosition(position: ScrollPositionSnapshot | null): void {
     const textarea = options.textareaRef.value
     if (!textarea || !position) return
-    if (restoreFallbackPosition(textarea, position, 'editor')) return
+    if (restoreFallbackPosition(textarea, position)) return
     if (position.line !== null) {
       scrollEditorToLine(position.line)
     }
@@ -425,12 +437,12 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
   function restorePreviewPosition(position: ScrollPositionSnapshot | null): void {
     const container = options.previewRef.value
     if (!container || !position) return
-    if (restoreFallbackPosition(container, position, 'preview')) return
+    if (restoreFallbackPosition(container, position)) return
     if (position.line === null) return
 
     const element = findElementByLine(container, position.line)
     if (!element) {
-      applyScroll(container, getMaxScroll(container) * position.ratio, 'preview')
+      applyScroll(container, getMaxScroll(container) * position.ratio)
       return
     }
 
@@ -438,7 +450,7 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
     const elementRect = element.getBoundingClientRect()
     const anchorOffset = container.clientHeight * VIEWPORT_ANCHOR_RATIO
     const target = container.scrollTop + elementRect.top - containerRect.top - anchorOffset
-    applyScroll(container, target, 'preview')
+    applyScroll(container, target)
   }
 
   function computeLineCharRange(
@@ -518,10 +530,7 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
 
   function handleEditorScroll(): void {
     if (Date.now() < navigationSuppressUntil) return
-    if (pendingFeedbackSource === 'editor') {
-      pendingFeedbackSource = null
-      return
-    }
+    if (consumeProgrammaticFeedback(options.textareaRef.value)) return
     if (editorSyncFrame !== null) return
     editorSyncFrame = requestFrame(() => {
       editorSyncFrame = null
@@ -531,10 +540,7 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
 
   function handlePreviewScroll(): void {
     if (Date.now() < navigationSuppressUntil) return
-    if (pendingFeedbackSource === 'preview') {
-      pendingFeedbackSource = null
-      return
-    }
+    if (consumeProgrammaticFeedback(options.previewRef.value)) return
     if (previewSyncFrame !== null) return
     previewSyncFrame = requestFrame(() => {
       previewSyncFrame = null
@@ -574,6 +580,7 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
 
   function dispose(): void {
     detachScrollListeners()
+    programmaticScrollTargets.clear()
     if (editorSyncFrame !== null) {
       cancelFrame(editorSyncFrame)
       editorSyncFrame = null

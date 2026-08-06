@@ -213,7 +213,9 @@ import { extractMarkdownHeadings } from '../utils/markdownOutline'
 import {
   resolveEditorHistoryShortcut,
   resolveEditorShortcut,
+  isOutlineToggleShortcut,
 } from '../utils/keyboardShortcut'
+import { resolveSelectionWrap } from '../utils/selectionWrap'
 import {
   cutCurrentLine,
   getLineClipboardPayload,
@@ -270,7 +272,7 @@ const extImageToken = ref<string | null>(null)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const previewRef = ref<HTMLElement | null>(null)
 const editorBodyRef = ref<HTMLElement | null>(null)
-const syncEnabled = ref(true)
+const syncEnabled = ref(props.settings.defaultSyncEnabled)
 const searchOpen = ref(false)
 const replaceVisible = ref(false)
 const outlineOpen = ref(false)
@@ -485,6 +487,13 @@ watch(
 )
 
 watch(
+  () => props.settings.defaultSyncEnabled,
+  (enabled) => {
+    syncEnabled.value = enabled
+  },
+)
+
+watch(
   () => props.settings.editorFontSize,
   () => {
     nextTick(() => {
@@ -552,8 +561,33 @@ function getEditorSnapshot(content = editContent.value): EditorHistorySnapshot {
 
 function handleBeforeInput(event: Event): void {
   const textarea = event.currentTarget as HTMLTextAreaElement
+  const inputEvent = event as InputEvent
   editorHistory.synchronize(getEditorSnapshot(textarea.value))
-  pendingInputHistoryGroup = resolveInputHistoryGroup((event as InputEvent).inputType)
+  pendingInputHistoryGroup = resolveInputHistoryGroup(inputEvent.inputType)
+
+  // 有选区时插入（含全角）成对符号：自动用成对符号包裹选区。
+  // 放在 beforeinput 里可以同时覆盖直接按键与输入法提交的单个符号。
+  if (
+    typeof inputEvent.data === 'string' &&
+    inputEvent.data.length === 1
+  ) {
+    const wrap = resolveSelectionWrap(
+      editContent.value,
+      textarea.selectionStart,
+      textarea.selectionEnd,
+      inputEvent.data,
+    )
+    if (wrap) {
+      event.preventDefault()
+      pendingInputHistoryGroup = null
+      applyEditorContent(wrap.content, {
+        selectionStart: wrap.selectionStart,
+        selectionEnd: wrap.selectionEnd,
+        restoreSelection: true,
+        historyGroup: 'selection-wrap',
+      })
+    }
+  }
 }
 
 function handleContentInput(event: Event): void {
@@ -570,8 +604,10 @@ function handleContentInput(event: Event): void {
 }
 
 function handleTextareaKeydown(e: KeyboardEvent): void {
-  if (e.key !== 'Enter' || e.isComposing) return
+  if (e.isComposing) return
   const textarea = e.currentTarget as HTMLTextAreaElement
+
+  if (e.key !== 'Enter') return
 
   // Ctrl+Enter：光标跳到当前行行末，再执行回车行为（列表行继续列表，普通行插入换行）
   if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
@@ -1072,6 +1108,12 @@ async function handlePaste(e: ClipboardEvent): Promise<void> {
 }
 
 function handleKeydown(e: KeyboardEvent): void {
+  if (isOutlineToggleShortcut(e)) {
+    e.preventDefault()
+    outlineOpen.value = !outlineOpen.value
+    return
+  }
+
   const historyAction = resolveEditorHistoryShortcut(e)
   if (historyAction && document.activeElement === textareaRef.value) {
     e.preventDefault()

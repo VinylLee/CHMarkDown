@@ -27,6 +27,7 @@ interface AppSettings {
   editorFontSize: number
   defaultEditorMode: EditorMode
   wordWrap: boolean
+  defaultSyncEnabled: boolean
   imageDirectoryName: string
   showTrayIcon: boolean
 }

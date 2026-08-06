@@ -62,6 +62,14 @@
 
         <label class="toggle-field">
           <span>
+            <strong>默认启用同步定位</strong>
+            <small>启动应用时默认开启编辑区与预览区双向同步滚动；工具栏中的“同步”开关仍可随时切换。</small>
+          </span>
+          <input v-model="draft.defaultSyncEnabled" type="checkbox" />
+        </label>
+
+        <label class="toggle-field">
+          <span>
             <strong>显示托盘图标</strong>
             <small>开启后关闭窗口会隐藏到系统托盘；关闭后会正常退出。</small>
           </span>

@@ -668,6 +668,44 @@ describe('useScrollSync', () => {
       scrollSync.dispose()
     })
 
+    it('does not swallow a genuine editor scroll after a preview sync', async () => {
+      const ta = createTextarea(Array(100).fill('line').join('\n'), 0)
+      vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+        fontSize: '13.5px',
+        lineHeight: '25px',
+        paddingTop: '16px',
+        paddingRight: '18px',
+        paddingBottom: '16px',
+        paddingLeft: '18px',
+        fontFamily: 'monospace',
+        tabSize: '2',
+        letterSpacing: 'normal',
+      } as CSSStyleDeclaration)
+      const container = createPreviewContainer()
+      addPreviewLine(container, 20, 600)
+      addPreviewLine(container, 25, 900)
+      addPreviewLine(container, 30, 1200)
+      textareaRef.value = ta
+      previewRef.value = container
+
+      const scrollSync = useScrollSync({ textareaRef, previewRef, enabled })
+      // 先由预览区滚动触发一次“预览 -> 编辑区”同步，编辑区被程序化滚动。
+      container.scrollTop = 400
+      container.dispatchEvent(new Event('scroll'))
+      await flushFrames()
+      const syncedEditorTop = ta.scrollTop
+      expect(syncedEditorTop).toBeGreaterThan(0)
+
+      // 用户紧接着把编辑区滚到另一个位置：这不能被当作回环吞掉。
+      const previewBefore = container.scrollTop
+      ta.scrollTop = syncedEditorTop + 300
+      ta.dispatchEvent(new Event('scroll'))
+      await flushFrames()
+
+      expect(container.scrollTop).toBeGreaterThan(previewBefore)
+      scrollSync.dispose()
+    })
+
     it('syncs the editor when the preview scrolls', async () => {
       const ta = createTextarea(Array(100).fill('line').join('\n'), 0)
       vi.spyOn(window, 'getComputedStyle').mockReturnValue({

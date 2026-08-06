@@ -7,6 +7,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   editorFontSize: 14,
   defaultEditorMode: 'preview',
   wordWrap: true,
+  defaultSyncEnabled: true,
   imageDirectoryName: 'images',
   showTrayIcon: true,
 }

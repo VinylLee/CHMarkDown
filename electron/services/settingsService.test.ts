@@ -38,6 +38,11 @@ describe('settingsService', () => {
     expect(normalizeAppSettings({ ...DEFAULT_APP_SETTINGS }).defaultEditorMode).toBe('preview')
   })
 
+  it('enables sync positioning by default', () => {
+    expect(DEFAULT_APP_SETTINGS.defaultSyncEnabled).toBe(true)
+    expect(normalizeAppSettings({ ...DEFAULT_APP_SETTINGS }).defaultSyncEnabled).toBe(true)
+  })
+
   it('persists and reloads validated settings', () => {
     const settings = writeAppSettings(storagePath, {
       ...DEFAULT_APP_SETTINGS,
@@ -46,6 +51,7 @@ describe('settingsService', () => {
       editorFontSize: 17,
       defaultEditorMode: 'preview',
       wordWrap: false,
+      defaultSyncEnabled: false,
       imageDirectoryName: 'assets',
       showTrayIcon: false,
     })
@@ -67,6 +73,20 @@ describe('settingsService', () => {
     delete legacySettings.showTrayIcon
 
     expect(normalizeAppSettings(legacySettings).showTrayIcon).toBe(true)
+  })
+
+  it('enables sync positioning when migrating older settings without the field', () => {
+    const legacySettings = { ...DEFAULT_APP_SETTINGS } as Partial<typeof DEFAULT_APP_SETTINGS>
+    delete legacySettings.defaultSyncEnabled
+
+    expect(normalizeAppSettings(legacySettings).defaultSyncEnabled).toBe(true)
+  })
+
+  it('rejects a non-boolean sync default', () => {
+    expect(() => normalizeAppSettings({
+      ...DEFAULT_APP_SETTINGS,
+      defaultSyncEnabled: 'yes',
+    })).toThrow('设置格式无效')
   })
 
   it('rejects out-of-range and unknown preference values', () => {

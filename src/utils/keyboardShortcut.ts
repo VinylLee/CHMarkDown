@@ -35,6 +35,10 @@ export function isNoteListToggleShortcut(event: ShortcutEvent): boolean {
   return matchesPrimaryShortcut(event, 'b')
 }
 
+export function isOutlineToggleShortcut(event: ShortcutEvent): boolean {
+  return matchesPrimaryShortcut(event, 'g')
+}
+
 export type EditorHistoryShortcutAction = 'undo' | 'redo' | null
 
 export function resolveEditorHistoryShortcut(

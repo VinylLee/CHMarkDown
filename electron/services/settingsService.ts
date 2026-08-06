@@ -12,6 +12,7 @@ export interface AppSettings {
   editorFontSize: number
   defaultEditorMode: EditorMode
   wordWrap: boolean
+  defaultSyncEnabled: boolean
   imageDirectoryName: string
   showTrayIcon: boolean
 }
@@ -28,6 +29,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   editorFontSize: 14,
   defaultEditorMode: 'preview',
   wordWrap: true,
+  defaultSyncEnabled: true,
   imageDirectoryName: 'images',
   showTrayIcon: true,
 }
@@ -80,6 +82,7 @@ export function normalizeAppSettings(value: unknown): AppSettings {
     (candidate.editorFontSize as number) > 24 ||
     !EDITOR_MODES.has(candidate.defaultEditorMode as EditorMode) ||
     typeof candidate.wordWrap !== 'boolean' ||
+    (candidate.defaultSyncEnabled !== undefined && typeof candidate.defaultSyncEnabled !== 'boolean') ||
     (candidate.showTrayIcon !== undefined && typeof candidate.showTrayIcon !== 'boolean')
   ) {
     throw new Error('设置格式无效')
@@ -92,6 +95,7 @@ export function normalizeAppSettings(value: unknown): AppSettings {
     editorFontSize: candidate.editorFontSize as number,
     defaultEditorMode: candidate.defaultEditorMode as EditorMode,
     wordWrap: candidate.wordWrap,
+    defaultSyncEnabled: candidate.defaultSyncEnabled === undefined ? true : candidate.defaultSyncEnabled,
     imageDirectoryName: normalizeImageDirectoryName(candidate.imageDirectoryName),
     showTrayIcon: candidate.showTrayIcon === undefined ? true : candidate.showTrayIcon,
   }
