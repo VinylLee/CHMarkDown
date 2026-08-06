@@ -7,6 +7,8 @@ const HIGHLIGHT_DURATION_MS = 1500
 const VIEWPORT_ANCHOR_RATIO = 1 / 3
 const EDGE_TOLERANCE_PX = 2
 const SMOOTH_NAVIGATION_SUPPRESS_MS = 800
+const SCROLL_EPSILON_PX = 1
+const PROGRAMMATIC_SCROLL_TTL_MS = 250
 
 export interface ScrollPositionSnapshot {
   line: number | null
@@ -76,10 +78,15 @@ interface EditorMirrorState {
   lineStartOffsets: number[]
 }
 
+interface ProgrammaticScrollTarget {
+  target: number
+  expiresAt: number
+}
+
 export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncReturn {
   let previewHighlightTimer: ReturnType<typeof setTimeout> | null = null
-  const programmaticScrollTargets = new Map<HTMLElement, number>()
-  let navigationSuppressUntil = 0
+  const programmaticScrollTargets = new Map<HTMLElement, ProgrammaticScrollTarget>()
+  let previewNavigationSuppressUntil = 0
   let scrollListenersAttached = false
   let editorSyncFrame: number | null = null
   let previewSyncFrame: number | null = null
@@ -100,6 +107,11 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
     return Math.max(0, element.scrollHeight - element.clientHeight)
   }
 
+  function clampScrollTop(element: HTMLElement, requested: number): number {
+    if (!Number.isFinite(requested)) return 0
+    return Math.min(getMaxScroll(element), Math.max(0, requested))
+  }
+
   function getScrollPosition(
     element: HTMLElement,
     line: number | null,
@@ -117,28 +129,45 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
     return { line, ratio, edge }
   }
 
-  function applyScroll(
-    element: HTMLElement,
-    scrollTop: number,
-  ): void {
-    if (Math.abs(element.scrollTop - scrollTop) < 1) return
-    programmaticScrollTargets.set(element, scrollTop)
-    // 浏览器会自动把 scrollTop 限制在有效滚动范围内。
-    element.scrollTop = scrollTop
+  function applyScroll(element: HTMLElement, requestedScrollTop: number): void {
+    const before = element.scrollTop
+    const clampedTarget = clampScrollTop(element, requestedScrollTop)
+
+    if (Math.abs(before - clampedTarget) < SCROLL_EPSILON_PX) {
+      programmaticScrollTargets.delete(element)
+      return
+    }
+
+    const pending: ProgrammaticScrollTarget = {
+      target: clampedTarget,
+      expiresAt: Date.now() + PROGRAMMATIC_SCROLL_TTL_MS,
+    }
+    // 先保存，防止某些环境在设置 scrollTop 时同步触发 scroll 事件。
+    programmaticScrollTargets.set(element, pending)
+    element.scrollTop = clampedTarget
+
+    // 记录浏览器最终实际采用的 scrollTop（可能被截断）。
+    const actual = element.scrollTop
+    if (Math.abs(actual - before) < SCROLL_EPSILON_PX) {
+      // 没有产生实际移动，就不应等待反馈事件。
+      programmaticScrollTargets.delete(element)
+      return
+    }
+    pending.target = actual
   }
 
   /**
    * 判断当前滚动事件是否是我们程序化滚动产生的反馈事件。
-   * 只有元素当前位置与我们设置的目标一致时才消费；用户随后手动滚动到
-   * 其他位置时不会被误吞。
+   * 无论匹配与否都只允许消费一次：匹配视为程序化反馈忽略；
+   * 不匹配说明是用户输入或新的布局结果，正常处理，同时作废旧目标。
    */
   function consumeProgrammaticFeedback(element: HTMLElement | null): boolean {
     if (!element) return false
-    const target = programmaticScrollTargets.get(element)
-    if (target === undefined) return false
-    if (Math.abs(element.scrollTop - target) >= 1) return false
+    const pending = programmaticScrollTargets.get(element)
+    if (!pending) return false
     programmaticScrollTargets.delete(element)
-    return true
+    if (Date.now() > pending.expiresAt) return false
+    return Math.abs(element.scrollTop - pending.target) < SCROLL_EPSILON_PX
   }
 
   function restoreFallbackPosition(
@@ -296,14 +325,33 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
 
     const textNode = mirror.firstChild
     if (!textNode) return line === 1 ? 0 : null
-    const offset = Math.min(state.lineStartOffsets[line - 1], mirror.textContent?.length ?? 0)
+    const text = mirror.textContent ?? ''
+    const textLength = text.length
+    const offset = Math.min(state.lineStartOffsets[line - 1], textLength)
+    const mirrorRect = mirror.getBoundingClientRect()
+    if (mirrorRect.width === 0 && mirrorRect.height === 0) return null
+
+    if (offset < textLength && text.charCodeAt(offset) === 10) {
+      // 空行的起始位置指向换行符，折叠光标矩形在 Chromium 中可能为零。
+      // 改测下一行起点后减去一个行高（空行始终只占一行高度）。
+      const nextY = measureCaretY(textNode, mirrorRect, Math.min(offset + 1, textLength))
+      if (nextY === null) return null
+      return Math.max(0, nextY - getLineHeight(textarea))
+    }
+
+    return measureCaretY(textNode, mirrorRect, offset)
+  }
+
+  function measureCaretY(
+    textNode: Node,
+    mirrorRect: DOMRect,
+    offset: number,
+  ): number | null {
     const range = document.createRange()
     range.setStart(textNode, offset)
     range.collapse(true)
     if (typeof range.getBoundingClientRect !== 'function') return null
     const rect = range.getBoundingClientRect()
-    const mirrorRect = mirror.getBoundingClientRect()
-    if (mirrorRect.width === 0 && mirrorRect.height === 0) return null
     return Math.max(0, rect.top - mirrorRect.top)
   }
 
@@ -357,7 +405,7 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
     if (!container) return
     const element = findElementByLine(container, line)
     if (!element) return
-    navigationSuppressUntil = Date.now() + SMOOTH_NAVIGATION_SUPPRESS_MS
+    previewNavigationSuppressUntil = Date.now() + SMOOTH_NAVIGATION_SUPPRESS_MS
     element.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }
 
@@ -513,10 +561,29 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
     }, HIGHLIGHT_DURATION_MS)
   }
 
+  function isAtScrollStart(element: HTMLElement): boolean {
+    return element.scrollTop <= EDGE_TOLERANCE_PX
+  }
+
+  function isAtScrollEnd(element: HTMLElement): boolean {
+    return getMaxScroll(element) - element.scrollTop <= EDGE_TOLERANCE_PX
+  }
+
   function syncPreviewFromEditor(): void {
     const textarea = options.textareaRef.value
     const container = options.previewRef.value
     if (!textarea || !container) return
+
+    // 顶部 ↔ 顶部、底部 ↔ 底部直接吸附，不经过源码锚点插值。
+    if (isAtScrollStart(textarea)) {
+      applyScroll(container, 0)
+      return
+    }
+    if (isAtScrollEnd(textarea)) {
+      applyScroll(container, getMaxScroll(container))
+      return
+    }
+
     scrollPreviewToLineAtAnchor(computeEditorAnchorLine(textarea))
   }
 
@@ -524,13 +591,32 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
     const textarea = options.textareaRef.value
     const container = options.previewRef.value
     if (!textarea || !container) return
+
+    if (isAtScrollStart(container)) {
+      applyScroll(textarea, 0)
+      return
+    }
+    if (isAtScrollEnd(container)) {
+      applyScroll(textarea, getMaxScroll(textarea))
+      return
+    }
+
     const line = findPreviewAnchorLine(container)
     if (line !== null) scrollEditorToLine(line)
   }
 
   function handleEditorScroll(): void {
-    if (Date.now() < navigationSuppressUntil) return
-    if (consumeProgrammaticFeedback(options.textareaRef.value)) return
+    const textarea = options.textareaRef.value
+    if (!textarea) return
+    if (consumeProgrammaticFeedback(textarea)) return
+
+    // 用户正在主动滚动编辑区：取消尚未执行的“预览区 -> 编辑区”同步，
+    // 避免旧任务覆盖用户的新输入。
+    if (previewSyncFrame !== null) {
+      cancelFrame(previewSyncFrame)
+      previewSyncFrame = null
+    }
+
     if (editorSyncFrame !== null) return
     editorSyncFrame = requestFrame(() => {
       editorSyncFrame = null
@@ -539,8 +625,19 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
   }
 
   function handlePreviewScroll(): void {
-    if (Date.now() < navigationSuppressUntil) return
-    if (consumeProgrammaticFeedback(options.previewRef.value)) return
+    const container = options.previewRef.value
+    if (!container) return
+    if (consumeProgrammaticFeedback(container)) return
+
+    // 只忽略预览区自身的 smooth-scroll 反馈；编辑区的真实输入不受影响。
+    if (Date.now() < previewNavigationSuppressUntil) return
+
+    // 用户正在主动滚动预览区：取消尚未执行的“编辑区 -> 预览区”同步。
+    if (editorSyncFrame !== null) {
+      cancelFrame(editorSyncFrame)
+      editorSyncFrame = null
+    }
+
     if (previewSyncFrame !== null) return
     previewSyncFrame = requestFrame(() => {
       previewSyncFrame = null
@@ -548,8 +645,25 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
     })
   }
 
+  function clearPendingScrollState(): void {
+    const textarea = options.textareaRef.value
+    const container = options.previewRef.value
+    if (textarea) programmaticScrollTargets.delete(textarea)
+    if (container) programmaticScrollTargets.delete(container)
+    if (editorSyncFrame !== null) {
+      cancelFrame(editorSyncFrame)
+      editorSyncFrame = null
+    }
+    if (previewSyncFrame !== null) {
+      cancelFrame(previewSyncFrame)
+      previewSyncFrame = null
+    }
+    previewNavigationSuppressUntil = 0
+  }
+
   function detachScrollListeners(): void {
     if (!scrollListenersAttached) return
+    clearPendingScrollState()
     const textarea = options.textareaRef.value
     const container = options.previewRef.value
     textarea?.removeEventListener('scroll', handleEditorScroll)
@@ -559,6 +673,7 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
 
   function refreshScrollListeners(): void {
     detachScrollListeners()
+    clearPendingScrollState()
     if (!options.enabled.value) return
     const textarea = options.textareaRef.value
     const container = options.previewRef.value
@@ -580,15 +695,8 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
 
   function dispose(): void {
     detachScrollListeners()
+    clearPendingScrollState()
     programmaticScrollTargets.clear()
-    if (editorSyncFrame !== null) {
-      cancelFrame(editorSyncFrame)
-      editorSyncFrame = null
-    }
-    if (previewSyncFrame !== null) {
-      cancelFrame(previewSyncFrame)
-      previewSyncFrame = null
-    }
     if (editorMirror) {
       editorMirror.remove()
       editorMirror = null

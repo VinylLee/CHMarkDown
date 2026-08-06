@@ -9,13 +9,34 @@ describe('useScrollSync', () => {
   let previewRef: Ref<HTMLElement | null>
   let enabled: Ref<boolean>
 
+  function mockClampedScrollTop(
+    element: HTMLElement,
+    maxScroll: number,
+    initial = 0,
+  ): void {
+    let current = Math.min(maxScroll, Math.max(0, initial))
+    Object.defineProperty(element, 'scrollTop', {
+      configurable: true,
+      get() {
+        return current
+      },
+      set(value: number) {
+        current = Math.min(maxScroll, Math.max(0, value))
+      },
+    })
+  }
+
   function createTextarea(value: string, selectionStart: number): HTMLTextAreaElement {
     const el = document.createElement('textarea')
     el.value = value
     el.selectionStart = selectionStart
     el.selectionEnd = selectionStart
-    // Mock getComputedStyle results
     vi.spyOn(el, 'clientHeight', 'get').mockReturnValue(400)
+    // 模拟真实浏览器：scrollTop 被限制在 [0, scrollHeight - clientHeight]。
+    const lineCount = value.split('\n').length
+    const scrollHeight = 400 + (lineCount - 1) * 25 + 16 + 16
+    vi.spyOn(el, 'scrollHeight', 'get').mockReturnValue(scrollHeight)
+    mockClampedScrollTop(el, scrollHeight - 400)
     return el
   }
 
@@ -530,7 +551,7 @@ describe('useScrollSync', () => {
         width: 800, height: 600, x: 0, y: 100,
         toJSON: () => ({}),
       } as DOMRect)
-      container.scrollTop = 300
+      mockClampedScrollTop(container, 2000 - 600, 300)
       return container
     }
 
@@ -608,6 +629,9 @@ describe('useScrollSync', () => {
         letterSpacing: 'normal',
       } as CSSStyleDeclaration)
       const container = createPreviewContainer()
+      // 放大预览可滚动空间，避免用例目标被底部截断影响。
+      vi.spyOn(container, 'scrollHeight', 'get').mockReturnValue(4000)
+      mockClampedScrollTop(container, 4000 - 600, 300)
       addPreviewLine(container, 20, 600)
       addPreviewLine(container, 25, 900)
       addPreviewLine(container, 30, 1200)
@@ -786,6 +810,236 @@ describe('useScrollSync', () => {
       await flushFrames()
 
       expect(container.scrollTop).toBe(300)
+      scrollSync.dispose()
+    })
+
+    it('pins preview to bottom when editor reaches bottom', async () => {
+      const ta = createTextarea(Array(100).fill('line').join('\n'), 0)
+      vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+        fontSize: '13.5px',
+        lineHeight: '25px',
+        paddingTop: '16px',
+        paddingRight: '18px',
+        paddingBottom: '16px',
+        paddingLeft: '18px',
+        fontFamily: 'monospace',
+        tabSize: '2',
+        letterSpacing: 'normal',
+      } as CSSStyleDeclaration)
+      const container = createPreviewContainer()
+      addPreviewLine(container, 20, 600)
+      addPreviewLine(container, 30, 1200)
+      textareaRef.value = ta
+      previewRef.value = container
+
+      const scrollSync = useScrollSync({ textareaRef, previewRef, enabled })
+      ta.scrollTop = ta.scrollHeight - ta.clientHeight
+      ta.dispatchEvent(new Event('scroll'))
+      await flushFrames()
+
+      expect(container.scrollTop).toBe(container.scrollHeight - container.clientHeight)
+      scrollSync.dispose()
+    })
+
+    it('pins editor to bottom when preview reaches bottom', async () => {
+      const ta = createTextarea(Array(100).fill('line').join('\n'), 0)
+      vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+        fontSize: '13.5px',
+        lineHeight: '25px',
+        paddingTop: '16px',
+        paddingRight: '18px',
+        paddingBottom: '16px',
+        paddingLeft: '18px',
+        fontFamily: 'monospace',
+        tabSize: '2',
+        letterSpacing: 'normal',
+      } as CSSStyleDeclaration)
+      const container = createPreviewContainer()
+      addPreviewLine(container, 20, 600)
+      addPreviewLine(container, 30, 1200)
+      textareaRef.value = ta
+      previewRef.value = container
+
+      const scrollSync = useScrollSync({ textareaRef, previewRef, enabled })
+      container.scrollTop = container.scrollHeight - container.clientHeight
+      container.dispatchEvent(new Event('scroll'))
+      await flushFrames()
+
+      expect(ta.scrollTop).toBe(ta.scrollHeight - ta.clientHeight)
+      scrollSync.dispose()
+    })
+
+    it('does not bounce editor when preview target exceeds max scroll', async () => {
+      const ta = createTextarea(Array(100).fill('line').join('\n'), 0)
+      vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+        fontSize: '13.5px',
+        lineHeight: '25px',
+        paddingTop: '16px',
+        paddingRight: '18px',
+        paddingBottom: '16px',
+        paddingLeft: '18px',
+        fontFamily: 'monospace',
+        tabSize: '2',
+        letterSpacing: 'normal',
+      } as CSSStyleDeclaration)
+      const container = createPreviewContainer()
+      addPreviewLine(container, 40, 2400)
+      textareaRef.value = ta
+      previewRef.value = container
+
+      const scrollSync = useScrollSync({ textareaRef, previewRef, enabled })
+      ta.scrollTop = 1000
+      ta.dispatchEvent(new Event('scroll'))
+      await flushFrames()
+
+      // 编辑区 -> 预览区目标 2400 超过预览区最大 1400，被截断并记录实际值。
+      expect(container.scrollTop).toBe(1400)
+      const editorBefore = ta.scrollTop
+      // 程序化设置产生的预览反馈事件应被识别为反馈，不再反向拉动编辑区。
+      container.dispatchEvent(new Event('scroll'))
+      await flushFrames()
+      expect(ta.scrollTop).toBe(editorBefore)
+      scrollSync.dispose()
+    })
+
+    it('syncs a real editor scroll during preview smooth navigation', async () => {
+      const ta = createTextarea(Array(100).fill('line').join('\n'), 0)
+      vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+        fontSize: '13.5px',
+        lineHeight: '25px',
+        paddingTop: '16px',
+        paddingRight: '18px',
+        paddingBottom: '16px',
+        paddingLeft: '18px',
+        fontFamily: 'monospace',
+        tabSize: '2',
+        letterSpacing: 'normal',
+      } as CSSStyleDeclaration)
+      const container = createPreviewContainer()
+      addPreviewLine(container, 25, 900)
+      addPreviewLine(container, 40, 1600)
+      textareaRef.value = ta
+      previewRef.value = container
+
+      const scrollSync = useScrollSync({ textareaRef, previewRef, enabled })
+      // 启动预览区平滑导航抑制窗口。
+      scrollSync.scrollPreviewToLine(25)
+      // 抑制窗口内用户真实滚动编辑区：预览区必须响应。
+      ta.scrollTop = 1000
+      ta.dispatchEvent(new Event('scroll'))
+      await flushFrames()
+
+      expect(container.scrollTop).toBeGreaterThan(300)
+      scrollSync.dispose()
+    })
+
+    it('discards a stale programmatic target after mismatch', async () => {
+      const ta = createTextarea(Array(100).fill('line').join('\n'), 0)
+      vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+        fontSize: '13.5px',
+        lineHeight: '25px',
+        paddingTop: '16px',
+        paddingRight: '18px',
+        paddingBottom: '16px',
+        paddingLeft: '18px',
+        fontFamily: 'monospace',
+        tabSize: '2',
+        letterSpacing: 'normal',
+      } as CSSStyleDeclaration)
+      const container = createPreviewContainer()
+      // 放大预览可滚动空间，避免两次事件目标都被底部截断到同一点。
+      vi.spyOn(container, 'scrollHeight', 'get').mockReturnValue(8000)
+      mockClampedScrollTop(container, 8000 - 600, 300)
+      addPreviewLine(container, 30, 1200)
+      addPreviewLine(container, 40, 1600)
+      textareaRef.value = ta
+      previewRef.value = container
+
+      const scrollSync = useScrollSync({ textareaRef, previewRef, enabled })
+      scrollSync.scrollEditorToLine(30)
+      const oldTarget = ta.scrollTop
+
+      // 第一次事件位置与旧目标不同：作为真实滚动处理并作废旧目标。
+      ta.scrollTop = 1000
+      ta.dispatchEvent(new Event('scroll'))
+      await flushFrames()
+      const afterFirst = container.scrollTop
+      expect(afterFirst).toBeGreaterThan(300)
+
+      // 第二次滚到旧目标位置：不能被已作废的目标吞掉。
+      ta.scrollTop = oldTarget
+      ta.dispatchEvent(new Event('scroll'))
+      await flushFrames()
+      expect(container.scrollTop).not.toBe(afterFirst)
+      scrollSync.dispose()
+    })
+
+    it('gives priority to the most recent user scroll side', async () => {
+      const ta = createTextarea(Array(100).fill('line').join('\n'), 0)
+      vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+        fontSize: '13.5px',
+        lineHeight: '25px',
+        paddingTop: '16px',
+        paddingRight: '18px',
+        paddingBottom: '16px',
+        paddingLeft: '18px',
+        fontFamily: 'monospace',
+        tabSize: '2',
+        letterSpacing: 'normal',
+      } as CSSStyleDeclaration)
+      const container = createPreviewContainer()
+      addPreviewLine(container, 20, 600)
+      addPreviewLine(container, 30, 1200)
+      textareaRef.value = ta
+      previewRef.value = container
+
+      const scrollSync = useScrollSync({ textareaRef, previewRef, enabled })
+      // 编辑区先滚动，安排 editorSyncFrame；帧执行前用户滚动预览区。
+      ta.scrollTop = 1000
+      ta.dispatchEvent(new Event('scroll'))
+      container.scrollTop = 500
+      container.dispatchEvent(new Event('scroll'))
+      await flushFrames()
+
+      // 预览区保持用户放置的位置，编辑区按预览区锚点更新。
+      expect(container.scrollTop).toBe(500)
+      expect(ta.scrollTop).toBeCloseTo(357.67, 1)
+      scrollSync.dispose()
+    })
+
+    it('clears pending programmatic state when listeners are refreshed', async () => {
+      const ta = createTextarea(Array(100).fill('line').join('\n'), 0)
+      vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+        fontSize: '13.5px',
+        lineHeight: '25px',
+        paddingTop: '16px',
+        paddingRight: '18px',
+        paddingBottom: '16px',
+        paddingLeft: '18px',
+        fontFamily: 'monospace',
+        tabSize: '2',
+        letterSpacing: 'normal',
+      } as CSSStyleDeclaration)
+      const container = createPreviewContainer()
+      addPreviewLine(container, 30, 1200)
+      textareaRef.value = ta
+      previewRef.value = container
+
+      const scrollSync = useScrollSync({ textareaRef, previewRef, enabled })
+      scrollSync.scrollEditorToLine(30)
+      const oldTarget = ta.scrollTop
+
+      // 重新绑定监听器（关闭再开启同步）。
+      enabled.value = false
+      await flushFrames()
+      enabled.value = true
+      await flushFrames()
+
+      // 旧程序化目标已清空：用户滚到旧目标位置仍应正常同步。
+      ta.scrollTop = oldTarget
+      ta.dispatchEvent(new Event('scroll'))
+      await flushFrames()
+      expect(container.scrollTop).toBeGreaterThan(300)
       scrollSync.dispose()
     })
   })
