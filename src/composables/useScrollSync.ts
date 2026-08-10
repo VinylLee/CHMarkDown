@@ -1,6 +1,6 @@
 import type { Ref } from 'vue'
 import { watch } from 'vue'
-import { findElementByLine } from '../utils/markdownSourceMap'
+import { findSourceRange } from '../utils/markdownSourceMap'
 
 const HIGHLIGHT_CLASS = 'source-line-highlight'
 const HIGHLIGHT_DURATION_MS = 1500
@@ -69,6 +69,9 @@ export interface UseScrollSyncReturn {
   /** Invalidate the cached editor layout measurement (call when content or metrics change). */
   invalidateEditorMeasurement: () => void
 
+  /** Invalidate cached preview source elements after v-html updates. */
+  invalidatePreviewMeasurement: () => void
+
   /** Detach live scroll listeners and remove the measurement mirror. */
   dispose: () => void
 }
@@ -76,6 +79,13 @@ export interface UseScrollSyncReturn {
 interface EditorMirrorState {
   signature: string
   lineStartOffsets: number[]
+}
+
+interface PreviewMeasurementCache {
+  container: HTMLElement
+  elements: HTMLElement[]
+  elementsByLine: Map<number, HTMLElement>
+  sortedLines: number[]
 }
 
 interface ProgrammaticScrollTarget {
@@ -92,6 +102,8 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
   let previewSyncFrame: number | null = null
   let editorMirror: HTMLDivElement | null = null
   let editorMirrorState: EditorMirrorState | null = null
+  let editorLineStartOffsets: number[] | null = null
+  let previewMeasurementCache: PreviewMeasurementCache | null = null
 
   const requestFrame = typeof requestAnimationFrame === 'function'
     ? (callback: FrameRequestCallback) => requestAnimationFrame(callback)
@@ -215,6 +227,56 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
     return offsets
   }
 
+  function getEditorLineStartOffsets(textarea: HTMLTextAreaElement): number[] {
+    if (editorLineStartOffsets === null) {
+      editorLineStartOffsets = computeLineStartOffsets(textarea.value)
+    }
+    return editorLineStartOffsets
+  }
+
+  function getPreviewMeasurementCache(container: HTMLElement): PreviewMeasurementCache {
+    if (previewMeasurementCache?.container === container) return previewMeasurementCache
+
+    const elements = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-source-line]'),
+    ).filter((element) => {
+      const line = Number(element.dataset.sourceLine)
+      return Number.isInteger(line) && line >= 1
+    })
+    const elementsByLine = new Map<number, HTMLElement>()
+    for (const element of elements) {
+      const line = Number(element.dataset.sourceLine)
+      if (!elementsByLine.has(line)) elementsByLine.set(line, element)
+    }
+    const sortedLines = [...elementsByLine.keys()].sort((a, b) => a - b)
+    previewMeasurementCache = { container, elements, elementsByLine, sortedLines }
+    return previewMeasurementCache
+  }
+
+  function findPreviewElementByLine(
+    container: HTMLElement,
+    targetLine: number,
+  ): HTMLElement | null {
+    const cache = getPreviewMeasurementCache(container)
+    const exact = cache.elementsByLine.get(targetLine)
+    if (exact) return exact
+
+    let low = 0
+    let high = cache.sortedLines.length - 1
+    let bestLine: number | null = null
+    while (low <= high) {
+      const middle = Math.floor((low + high) / 2)
+      const line = cache.sortedLines[middle]
+      if (line <= targetLine) {
+        bestLine = line
+        low = middle + 1
+      } else {
+        high = middle - 1
+      }
+    }
+    return bestLine === null ? null : cache.elementsByLine.get(bestLine) ?? null
+  }
+
   function getEditorMirror(textarea: HTMLTextAreaElement): HTMLDivElement | null {
     if (!editorMirror) {
       const mirror = document.createElement('div')
@@ -293,7 +355,7 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
     mirror.style.padding = `${style.paddingTop} ${style.paddingRight} ${style.paddingBottom} ${style.paddingLeft}`
     editorMirrorState = {
       signature: getEditorMirrorSignature(textarea),
-      lineStartOffsets: computeLineStartOffsets(textarea.value),
+      lineStartOffsets: getEditorLineStartOffsets(textarea),
     }
   }
 
@@ -318,6 +380,13 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
   ): number | null {
     if (!wrapsTextarea(textarea)) return null
     ensureEditorMirrorFresh(textarea)
+    return measureEditorLineYFromFreshMirror(textarea, line)
+  }
+
+  function measureEditorLineYFromFreshMirror(
+    textarea: HTMLTextAreaElement,
+    line: number,
+  ): number | null {
     const mirror = editorMirror
     const state = editorMirrorState
     if (!mirror || !state) return null
@@ -357,7 +426,7 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
 
   function computeEditorAnchorLine(textarea: HTMLTextAreaElement): number {
     const anchorY = textarea.scrollTop + textarea.clientHeight * VIEWPORT_ANCHOR_RATIO
-    const lineCount = textarea.value.split('\n').length
+    const lineCount = getEditorLineStartOffsets(textarea).length
 
     const fallbackMath = (): number => {
       const lineHeight = getLineHeight(textarea)
@@ -370,14 +439,15 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
 
     if (!wrapsTextarea(textarea)) return fallbackMath()
 
-    const firstLineY = measureEditorLineY(textarea, 1)
+    ensureEditorMirrorFresh(textarea)
+    const firstLineY = measureEditorLineYFromFreshMirror(textarea, 1)
     if (firstLineY === null) return fallbackMath()
 
     let lo = 1
     let hi = lineCount
     while (lo < hi) {
       const mid = Math.ceil((lo + hi) / 2)
-      const midY = measureEditorLineY(textarea, mid) ?? firstLineY
+      const midY = measureEditorLineYFromFreshMirror(textarea, mid) ?? firstLineY
       if (midY <= anchorY) {
         lo = mid
       } else {
@@ -390,7 +460,7 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
   function scrollPreviewToLineAtAnchor(line: number): void {
     const container = options.previewRef.value
     if (!container) return
-    const element = findElementByLine(container, line)
+    const element = findPreviewElementByLine(container, line)
     if (!element) return
 
     const containerRect = container.getBoundingClientRect()
@@ -403,7 +473,7 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
   function scrollPreviewToLine(line: number): void {
     const container = options.previewRef.value
     if (!container) return
-    const element = findElementByLine(container, line)
+    const element = findPreviewElementByLine(container, line)
     if (!element) return
     previewNavigationSuppressUntil = Date.now() + SMOOTH_NAVIGATION_SUPPRESS_MS
     element.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -425,8 +495,15 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
   function getCurrentEditorLine(): number {
     const textarea = options.textareaRef.value
     if (!textarea) return 1
-    const textBefore = textarea.value.substring(0, textarea.selectionStart)
-    return textBefore.split('\n').length
+    const offsets = getEditorLineStartOffsets(textarea)
+    let low = 0
+    let high = offsets.length - 1
+    while (low <= high) {
+      const middle = Math.floor((low + high) / 2)
+      if (offsets[middle] <= textarea.selectionStart) low = middle + 1
+      else high = middle - 1
+    }
+    return Math.max(1, high + 1)
   }
 
   function captureEditorPosition(): ScrollPositionSnapshot | null {
@@ -439,7 +516,18 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
   function findPreviewAnchorLine(container: HTMLElement): number | null {
     const containerRect = container.getBoundingClientRect()
     const anchorY = containerRect.top + container.clientHeight * VIEWPORT_ANCHOR_RATIO
-    const elements = container.querySelectorAll<HTMLElement>('[data-source-line]')
+    const elementFromPoint = document.elementFromPoint?.bind(document)
+    if (elementFromPoint) {
+      const anchorX = containerRect.left + Math.max(1, container.clientWidth / 2)
+      const hit = elementFromPoint(anchorX, anchorY)
+      if (hit instanceof HTMLElement && container.contains(hit)) {
+        const sourceRange = findSourceRange(hit)
+        if (sourceRange && container.contains(sourceRange.element)) {
+          return sourceRange.startLine
+        }
+      }
+    }
+    const elements = getPreviewMeasurementCache(container).elements
     let closestLine: number | null = null
     let closestDistance = Number.POSITIVE_INFINITY
     let closestTopDistance = Number.POSITIVE_INFINITY
@@ -488,7 +576,7 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
     if (restoreFallbackPosition(container, position)) return
     if (position.line === null) return
 
-    const element = findElementByLine(container, position.line)
+    const element = findPreviewElementByLine(container, position.line)
     if (!element) {
       applyScroll(container, getMaxScroll(container) * position.ratio)
       return
@@ -505,13 +593,11 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
     textarea: HTMLTextAreaElement,
     line: number,
   ): { start: number; end: number } | null {
-    const lines = textarea.value.split('\n')
-    if (line < 1 || line > lines.length) return null
-    let charStart = 0
-    for (let i = 0; i < line - 1; i += 1) {
-      charStart += lines[i].length + 1 // +1 for the newline character
-    }
-    return { start: charStart, end: charStart + lines[line - 1].length }
+    const offsets = getEditorLineStartOffsets(textarea)
+    if (line < 1 || line > offsets.length) return null
+    const start = offsets[line - 1]
+    const end = line < offsets.length ? offsets[line] - 1 : textarea.value.length
+    return { start, end }
   }
 
   function highlightEditorLine(line: number): void {
@@ -543,7 +629,7 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
     const container = options.previewRef.value
     if (!container) return
 
-    const element = findElementByLine(container, line)
+    const element = findPreviewElementByLine(container, line)
     if (!element) return
 
     if (previewHighlightTimer !== null) {
@@ -691,6 +777,11 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
 
   function invalidateEditorMeasurement(): void {
     editorMirrorState = null
+    editorLineStartOffsets = null
+  }
+
+  function invalidatePreviewMeasurement(): void {
+    previewMeasurementCache = null
   }
 
   function dispose(): void {
@@ -702,6 +793,8 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
       editorMirror = null
     }
     editorMirrorState = null
+    editorLineStartOffsets = null
+    previewMeasurementCache = null
   }
 
   return {
@@ -716,6 +809,7 @@ export function useScrollSync(options: UseScrollSyncOptions): UseScrollSyncRetur
     restorePreviewPosition,
     revealEditorLine,
     invalidateEditorMeasurement,
+    invalidatePreviewMeasurement,
     dispose,
   }
 }

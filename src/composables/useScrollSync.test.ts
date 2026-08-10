@@ -141,6 +141,41 @@ describe('useScrollSync', () => {
       const { scrollPreviewToLine } = useScrollSync({ textareaRef, previewRef, enabled })
       expect(() => scrollPreviewToLine(5)).not.toThrow()
     })
+
+    it('reuses preview source elements until the rendered preview changes', () => {
+      const container = document.createElement('div')
+      const target = document.createElement('p')
+      target.dataset.sourceLine = '3'
+      target.scrollIntoView = vi.fn()
+      container.appendChild(target)
+      previewRef.value = container
+      const querySpy = vi.spyOn(container, 'querySelectorAll')
+
+      const scrollSync = useScrollSync({ textareaRef, previewRef, enabled })
+      scrollSync.scrollPreviewToLine(3)
+      scrollSync.scrollPreviewToLine(3)
+      expect(querySpy).toHaveBeenCalledTimes(1)
+
+      scrollSync.invalidatePreviewMeasurement()
+      scrollSync.scrollPreviewToLine(3)
+      expect(querySpy).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  describe('editor line index', () => {
+    it('rebuilds cached line starts after content changes', () => {
+      const ta = createTextarea('a\nb', 0)
+      textareaRef.value = ta
+      const scrollSync = useScrollSync({ textareaRef, previewRef, enabled })
+
+      ta.setSelectionRange(2, 2)
+      expect(scrollSync.getCurrentEditorLine()).toBe(2)
+
+      ta.value = 'a\nb\nc'
+      ta.setSelectionRange(4, 4)
+      scrollSync.invalidateEditorMeasurement()
+      expect(scrollSync.getCurrentEditorLine()).toBe(3)
+    })
   })
 
   describe('mode switch position', () => {

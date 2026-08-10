@@ -69,12 +69,38 @@ describe('markdownFileService', () => {
   })
 
   it('rejects unsupported file extensions', () => {
-    const filePath = path.join(testDirectory, 'note.txt')
+    const filePath = path.join(testDirectory, 'note.bin')
 
-    expect(() => readMarkdownFile(filePath)).toThrow('仅支持 .md 或 .markdown 文件')
+    expect(() => readMarkdownFile(filePath)).toThrow('仅支持 .md、.markdown、.txt 或 .json 文件')
     expect(() => writeMarkdownFile(filePath, 'content')).toThrow(
-      '仅支持 .md 或 .markdown 文件'
+      '仅支持 .md、.markdown、.txt 或 .json 文件',
     )
+  })
+
+  it('reads and writes TXT files', () => {
+    const filePath = path.join(testDirectory, 'notes.txt')
+    const content = '第一行\n第二行\n'
+    writeFileSync(filePath, content, 'utf8')
+
+    expect(readMarkdownFile(filePath)).toEqual({
+      filePath,
+      fileName: 'notes.txt',
+      content,
+    })
+    expect(writeMarkdownFile(filePath, '更新内容').content).toBe('更新内容')
+  })
+
+  it('reads and writes JSON files', () => {
+    const filePath = path.join(testDirectory, 'config.json')
+    const content = '{"name": "CHMarkDown"}\n'
+    writeFileSync(filePath, content, 'utf8')
+
+    expect(readMarkdownFile(filePath)).toEqual({
+      filePath,
+      fileName: 'config.json',
+      content,
+    })
+    expect(writeMarkdownFile(filePath, '{"updated": true}').content).toBe('{"updated": true}')
   })
 
   it('creates a safe Markdown default file name', () => {
@@ -86,7 +112,7 @@ describe('markdownFileService', () => {
   it('reports a readable error when the source file does not exist', () => {
     const filePath = path.join(testDirectory, 'missing.md')
 
-    expect(() => readMarkdownFile(filePath)).toThrow('打开 Markdown 文件失败')
+    expect(() => readMarkdownFile(filePath)).toThrow('打开文件失败')
   })
 
   it('copies selected and pasted images beside an external document', () => {

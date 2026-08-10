@@ -234,6 +234,8 @@ import {
 } from '../utils/editorHistory'
 import { resolveDocumentSwitchMode } from '../utils/editorMode'
 import 'katex/dist/katex.min.css'
+import { escapeHtmlText, isPlainTextFilePath } from '../utils/plainTextPreview'
+import { createCoalescedTask } from '../utils/coalescedTask'
 
 const ImageSizeControl = defineAsyncComponent(() => import('./ImageSizeControl.vue'))
 const DocumentOutline = defineAsyncComponent(() => import('./DocumentOutline.vue'))
@@ -262,6 +264,9 @@ const emit = defineEmits<{
 
 const editTitle = ref('')
 const editContent = ref('')
+const previewContent = ref('')
+const statisticsContent = ref('')
+const outlineContent = ref('')
 const savedTitle = ref('')
 const savedContent = ref('')
 const isDirty = ref(false)
@@ -314,17 +319,59 @@ const editorHistory = createEditorHistory({
 })
 let pendingInputHistoryGroup: string | null = null
 
+const previewUpdateTask = createCoalescedTask(
+  () => { previewContent.value = editContent.value },
+  { delayMs: 80, maxWaitMs: 240 },
+)
+const statisticsUpdateTask = createCoalescedTask(
+  () => { statisticsContent.value = editContent.value },
+  { delayMs: 140, maxWaitMs: 420 },
+)
+const outlineUpdateTask = createCoalescedTask(
+  () => { outlineContent.value = editContent.value },
+  { delayMs: 180, maxWaitMs: 540 },
+)
+
+function synchronizeDerivedContent(content: string): void {
+  previewUpdateTask.cancel()
+  statisticsUpdateTask.cancel()
+  outlineUpdateTask.cancel()
+  previewContent.value = content
+  statisticsContent.value = content
+  outlineContent.value = content
+}
+
 interface DocumentSearchSelection {
   query: string
   editorRange: { start: number; end: number } | null
 }
 
 const preparedContent = computed(() => {
-  if (!props.documentPath) return editContent.value
-  return transformExternalImagePaths(editContent.value, extImageToken.value)
+  if (!props.documentPath) return previewContent.value
+  return transformExternalImagePaths(previewContent.value, extImageToken.value)
 })
 
+const isPlainTextDocument = computed(() =>
+  Boolean(props.documentPath && isPlainTextFilePath(props.documentPath)),
+)
+
 const renderedMarkdown = computed(() => {
+  // TXT/JSON 按纯文本展示，编辑区与预览区显示相同内容。
+  if (isPlainTextDocument.value) {
+    return DOMPurify.sanitize(
+      `<pre class="plain-text-preview">${escapeHtmlText(preparedContent.value)}</pre>`,
+      {
+        ALLOWED_URI_REGEXP,
+        ADD_ATTR: [
+          'style',
+          'data-image-index',
+          'data-image-width',
+          'data-source-line',
+          'data-source-end-line',
+        ],
+      },
+    )
+  }
   const raw = md.render(preparedContent.value || '', {
     selectedImageIndex: selectedImageIndex.value,
   })
@@ -345,7 +392,7 @@ const selectedImageWidth = computed(() => {
   return findResizableMarkdownImages(editContent.value)[selectedImageIndex.value]?.width ?? null
 })
 
-const wordCount = computed(() => countDocumentWords(editContent.value))
+const wordCount = computed(() => countDocumentWords(statisticsContent.value))
 const selectedText = ref('')
 
 function updateSelectedText(): void {
@@ -398,7 +445,9 @@ const editorTextStyle = computed(() => ({
   fontSize: `${props.settings.editorFontSize}px`,
 }))
 
-const outlineHeadings = computed(() => extractMarkdownHeadings(editContent.value))
+const outlineHeadings = computed(() =>
+  isPlainTextDocument.value ? [] : extractMarkdownHeadings(outlineContent.value),
+)
 
 watch(
   () => props.note,
@@ -406,6 +455,7 @@ watch(
     if (!newNote) {
       editTitle.value = ''
       editContent.value = ''
+      synchronizeDerivedContent('')
       savedTitle.value = ''
       savedContent.value = ''
       isDirty.value = false
@@ -425,6 +475,7 @@ watch(
     if (newNote.id !== oldNote?.id) {
       editTitle.value = newNote.title
       editContent.value = newNote.content
+      synchronizeDerivedContent(newNote.content)
       savedTitle.value = newNote.title
       savedContent.value = newNote.content
       isDirty.value = false
@@ -494,7 +545,11 @@ watch(
 )
 
 watch(
-  () => props.settings.editorFontSize,
+  () => [
+    props.settings.editorFontSize,
+    props.settings.editorFontFamily,
+    props.settings.wordWrap,
+  ],
   () => {
     nextTick(() => {
       scrollSync.invalidateEditorMeasurement()
@@ -505,7 +560,19 @@ watch(
 
 watch(editContent, () => {
   scrollSync.invalidateEditorMeasurement()
-})
+  if (editorMode.value !== 'edit') previewUpdateTask.schedule()
+  statisticsUpdateTask.schedule()
+  if (outlineOpen.value) outlineUpdateTask.schedule()
+}, { flush: 'sync' })
+
+watch(outlineOpen, (open) => {
+  if (!open) {
+    outlineUpdateTask.cancel()
+    return
+  }
+  outlineUpdateTask.cancel()
+  outlineContent.value = editContent.value
+}, { flush: 'sync' })
 
 watch([searchQuery, caseSensitive, wholeWord], () => {
   currentMatchIndex.value = 0
@@ -803,6 +870,12 @@ async function handleEditorClick(event: MouseEvent): Promise<void> {
 
 async function setEditorMode(mode: EditorMode): Promise<void> {
   if (editorMode.value === mode) return
+  if (mode === 'edit') {
+    previewUpdateTask.cancel()
+  } else if (previewContent.value !== editContent.value) {
+    previewUpdateTask.cancel()
+    previewContent.value = editContent.value
+  }
   const textarea = textareaRef.value
   const position = editorMode.value === 'preview'
     ? scrollSync.capturePreviewPosition()
@@ -1246,6 +1319,9 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  previewUpdateTask.cancel()
+  statisticsUpdateTask.cancel()
+  outlineUpdateTask.cancel()
   scrollSync.dispose()
   scrollPaddingObserver?.disconnect()
   scrollPaddingObserver = null
@@ -1258,7 +1334,10 @@ onUnmounted(() => {
 })
 
 watch(renderedMarkdown, () => {
-  nextTick(() => attachImageErrorHandlers())
+  nextTick(() => {
+    scrollSync.invalidatePreviewMeasurement()
+    attachImageErrorHandlers()
+  })
 })
 </script>
 
@@ -1716,6 +1795,16 @@ watch(renderedMarkdown, () => {
   border-collapse: collapse;
   width: 100%;
   margin: 0.6em 0;
+}
+
+.content-preview :deep(.plain-text-preview) {
+  margin: 0;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  color: var(--color-text);
 }
 
 .content-preview :deep(th),

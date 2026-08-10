@@ -305,8 +305,8 @@ function registerIpcHandlers(): void {
       throw new Error('应用窗口未就绪')
     }
     const result = await dialog.showOpenDialog(mainWindow, {
-      title: '打开 Markdown 文件',
-      filters: [{ name: 'Markdown 文件', extensions: ['md', 'markdown'] }],
+      title: '打开文本文件',
+      filters: [{ name: '文本文件', extensions: ['md', 'markdown', 'txt', 'json'] }],
       properties: ['openFile'],
     })
     if (result.canceled || result.filePaths.length === 0) {
@@ -377,9 +377,9 @@ function registerIpcHandlers(): void {
         throw new Error('应用窗口未就绪')
       }
       const result = await dialog.showSaveDialog(mainWindow, {
-        title: '另存为 Markdown 文件',
+        title: '另存为文件',
         defaultPath: createMarkdownDefaultName(suggestedName),
-        filters: [{ name: 'Markdown 文件', extensions: ['md', 'markdown'] }],
+        filters: [{ name: '文本文件', extensions: ['md', 'markdown', 'txt', 'json'] }],
       })
       if (result.canceled || !result.filePath) {
         return null

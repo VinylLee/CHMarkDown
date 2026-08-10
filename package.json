@@ -1,7 +1,7 @@
 {
   "name": "chmarkdown",
   "productName": "CHMarkDown",
-  "version": "1.0.9",
+  "version": "1.1.0",
   "description": "Windows 本地 Markdown 编辑与笔记工具",
   "author": "VinylLee",
   "main": "dist-electron/main.js",
@@ -36,6 +36,15 @@
         "name": "Markdown Document",
         "description": "Markdown 文档",
         "role": "Editor"
+      },
+      {
+        "ext": [
+          "txt",
+          "json"
+        ],
+        "name": "Text Document",
+        "description": "文本文件",
+        "role": "Editor"
       }
     ],
     "nsis": {
@@ -59,6 +68,7 @@
     "package:portable": "npm run build && electron-builder --win portable --x64",
     "package:zip": "npm run build && electron-builder --win zip --x64 --config.compression=maximum",
     "measure:startup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/measure-startup.ps1",
+    "measure:editor": "node scripts/measure-editor-performance.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "version:patch": "npm version patch --no-git-tag-version && git add package.json && git commit -m \"chore: bump version\"",

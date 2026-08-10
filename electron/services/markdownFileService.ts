@@ -12,7 +12,7 @@ import {
 import path from 'node:path'
 import crypto from 'node:crypto'
 
-const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown'])
+const SUPPORTED_TEXT_EXTENSIONS = new Set(['.md', '.markdown', '.txt', '.json'])
 
 export interface MarkdownFileDocument {
   filePath: string
@@ -21,7 +21,7 @@ export interface MarkdownFileDocument {
 }
 
 export function isMarkdownFilePath(filePath: string): boolean {
-  return MARKDOWN_EXTENSIONS.has(path.extname(filePath).toLowerCase())
+  return SUPPORTED_TEXT_EXTENSIONS.has(path.extname(filePath).toLowerCase())
 }
 
 export function createMarkdownDefaultName(suggestedName: string): string {
@@ -38,7 +38,7 @@ export function createMarkdownDefaultName(suggestedName: string): string {
 
 function assertMarkdownFilePath(filePath: string): void {
   if (!isMarkdownFilePath(filePath)) {
-    throw new Error('仅支持 .md 或 .markdown 文件')
+    throw new Error('仅支持 .md、.markdown、.txt 或 .json 文件')
   }
 }
 
@@ -55,7 +55,7 @@ export function readMarkdownFile(filePath: string): MarkdownFileDocument {
       content: readFileSync(filePath, 'utf8'),
     }
   } catch (error) {
-    throw new Error(`打开 Markdown 文件失败：${errorMessage(error)}`)
+    throw new Error(`打开文件失败：${errorMessage(error)}`)
   }
 }
 
@@ -69,7 +69,7 @@ export function writeMarkdownFile(filePath: string, content: string): MarkdownFi
       content,
     }
   } catch (error) {
-    throw new Error(`保存 Markdown 文件失败：${errorMessage(error)}`)
+    throw new Error(`保存文件失败：${errorMessage(error)}`)
   }
 }
 

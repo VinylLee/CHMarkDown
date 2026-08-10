@@ -11,7 +11,7 @@ export function getDroppedMarkdownFilePath<T extends DroppedFileLike>(
   files: Iterable<T>,
   getFilePath: (file: T) => string,
 ): DroppedMarkdownResult {
-  const markdownFile = Array.from(files).find((file) => /\.(md|markdown)$/i.test(file.name))
+  const markdownFile = Array.from(files).find((file) => /\.(md|markdown|txt|json)$/i.test(file.name))
   if (!markdownFile) return { status: 'unsupported' }
 
   try {

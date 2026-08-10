@@ -43,8 +43,8 @@
     <div v-if="isDraggingFile" class="file-drop-overlay">
       <div class="file-drop-card">
         <span class="file-drop-icon">↓</span>
-        <strong>拖放以打开 Markdown 文件</strong>
-        <span>支持 .md 和 .markdown</span>
+        <strong>拖放以打开文本文件</strong>
+        <span>支持 .md、.markdown、.txt 和 .json</span>
       </div>
     </div>
   </div>
@@ -295,7 +295,7 @@ async function handleSave(data: { id: string; title: string; content: string }):
       show('文件已保存')
       return true
     } catch (err) {
-      error.value = '保存 Markdown 文件失败。'
+      error.value = '保存文件失败。'
       show(error.value, 'error')
       console.error('Failed to save Markdown file:', err)
       return false
@@ -330,7 +330,7 @@ async function handleOpenFile(): Promise<void> {
     if (!(await canLeaveCurrentNote())) return
     await activateOpenedFile(openedFile)
   } catch (err) {
-    error.value = '打开 Markdown 文件失败。'
+    error.value = '打开文件失败。'
     show(error.value, 'error')
     console.error('Failed to open Markdown file:', err)
   }
@@ -357,7 +357,7 @@ async function handleOpenFilePath(
   } catch (err) {
     const message = source === 'recent'
       ? '无法打开最近文件，文件可能已移动或删除。可点击右侧 × 移除记录。'
-      : '无法打开该文件，请确认它存在且是 Markdown 文件。'
+      : '无法打开该文件，请确认它存在且是受支持的文本文件。'
     show(message, 'error')
     console.error(`Failed to open Markdown file from ${source}:`, err)
   }
@@ -453,7 +453,7 @@ function handleDrop(event: DragEvent): void {
     (file) => window.electronAPI.files.getPathForFile(file),
   )
   if (result.status === 'unsupported') {
-    show('仅支持拖入 .md 或 .markdown 文件。', 'error')
+    show('仅支持拖入 .md、.markdown、.txt 或 .json 文件。', 'error')
     return
   }
   if (result.status === 'missing-path') {
@@ -492,7 +492,7 @@ async function handleSaveAs(): Promise<void> {
     await recordRecentFile(savedFile.filePath)
     show(`已另存为 ${savedFile.fileName}`)
   } catch (err) {
-    error.value = '另存 Markdown 文件失败。'
+    error.value = '另存文件失败。'
     show(error.value, 'error')
     console.error('Failed to save Markdown file as:', err)
   }

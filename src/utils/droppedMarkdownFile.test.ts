@@ -4,7 +4,7 @@ import { getDroppedMarkdownFilePath } from './droppedMarkdownFile'
 describe('getDroppedMarkdownFilePath', () => {
   it('returns the first supported Markdown file path', () => {
     expect(getDroppedMarkdownFilePath([
-      { name: 'notes.txt' },
+      { name: 'notes.bin' },
       { name: 'README.md' },
       { name: 'later.markdown' },
     ], (file) => `C:\\未命名笔记\\${file.name}`)).toEqual({
@@ -24,8 +24,23 @@ describe('getDroppedMarkdownFilePath', () => {
 
   it('reports unsupported dropped files', () => {
     expect(getDroppedMarkdownFilePath([
-      { name: 'notes.txt' },
+      { name: 'notes.bin' },
     ], () => '')).toEqual({ status: 'unsupported' })
+  })
+
+  it('accepts dropped TXT and JSON files', () => {
+    expect(getDroppedMarkdownFilePath([
+      { name: 'notes.txt' },
+    ], (file) => `C:\\${file.name}`)).toEqual({
+      status: 'ok',
+      filePath: 'C:\\notes.txt',
+    })
+    expect(getDroppedMarkdownFilePath([
+      { name: 'config.JSON' },
+    ], (file) => `C:\\${file.name}`)).toEqual({
+      status: 'ok',
+      filePath: 'C:\\config.JSON',
+    })
   })
 
   it('reports when Electron does not return a local path', () => {
