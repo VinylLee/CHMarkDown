@@ -199,7 +199,9 @@ import { transformExternalImagePaths } from '../utils/externalFileImages'
 import { configureMarkdownSourceMap, resolveSourceLineFromPreviewClick } from '../utils/markdownSourceMap'
 import { configureMarkdownLatex } from '../utils/markdownLatex'
 import { useScrollSync } from '../composables/useScrollSync'
+import type { ScrollPositionSnapshot } from '../composables/useScrollSync'
 import { useSplitPane } from '../composables/useSplitPane'
+import { useDocumentViewState } from '../composables/useDocumentViewState'
 import {
   findAdjacentMatchIndex,
   findSelectedMatchIndex,
@@ -311,12 +313,29 @@ let editorSelection: {
   end: number
   direction: 'forward' | 'backward' | 'none'
 } | null = null
-const editorHistory = createEditorHistory({
+let editorHistory = createEditorHistory({
   content: '',
   selectionStart: 0,
   selectionEnd: 0,
   selectionDirection: 'none',
 })
+type EditorHistory = ReturnType<typeof createEditorHistory>
+
+interface CachedDocumentState {
+  title: string
+  content: string
+  savedTitle: string
+  savedContent: string
+  selectionStart: number
+  selectionEnd: number
+  selectionDirection: 'forward' | 'backward' | 'none'
+  editorPosition: ScrollPositionSnapshot | null
+  previewPosition: ScrollPositionSnapshot | null
+  history: EditorHistory
+}
+
+const cachedDocuments = new Map<string, CachedDocumentState>()
+const documentViewState = useDocumentViewState()
 let pendingInputHistoryGroup: string | null = null
 
 const previewUpdateTask = createCoalescedTask(
@@ -331,6 +350,92 @@ const outlineUpdateTask = createCoalescedTask(
   () => { outlineContent.value = editContent.value },
   { delayMs: 180, maxWaitMs: 540 },
 )
+
+function createCachedDocumentState(note: Note): CachedDocumentState {
+  const persisted = documentViewState.get(note.id)
+  const selectionStart = Math.min(persisted?.selectionStart ?? 0, note.content.length)
+  const selectionEnd = Math.min(persisted?.selectionEnd ?? selectionStart, note.content.length)
+  const selectionDirection = persisted?.selectionDirection ?? 'none'
+  return {
+    title: note.title,
+    content: note.content,
+    savedTitle: note.title,
+    savedContent: note.content,
+    selectionStart,
+    selectionEnd,
+    selectionDirection,
+    editorPosition: persisted?.editorPosition ?? null,
+    previewPosition: persisted?.previewPosition ?? null,
+    history: createEditorHistory({
+      content: note.content,
+      selectionStart,
+      selectionEnd,
+      selectionDirection,
+    }),
+  }
+}
+
+function captureDocumentState(documentId: string): CachedDocumentState | null {
+  const existing = cachedDocuments.get(documentId)
+  if (!existing) return null
+  const textarea = textareaRef.value
+  existing.title = editTitle.value
+  existing.content = editContent.value
+  if (textarea) {
+    existing.selectionStart = textarea.selectionStart
+    existing.selectionEnd = textarea.selectionEnd
+    existing.selectionDirection = textarea.selectionDirection
+  }
+  if (editorMode.value !== 'preview') {
+    existing.editorPosition = scrollSync.captureEditorPosition()
+  }
+  if (editorMode.value !== 'edit') {
+    existing.previewPosition = scrollSync.capturePreviewPosition()
+  }
+  documentViewState.set(documentId, {
+    editorPosition: existing.editorPosition,
+    previewPosition: existing.previewPosition,
+    selectionStart: existing.selectionStart,
+    selectionEnd: existing.selectionEnd,
+    selectionDirection: existing.selectionDirection,
+  })
+  return existing
+}
+
+function restoreDocumentState(state: CachedDocumentState): void {
+  editTitle.value = state.title
+  editContent.value = state.content
+  synchronizeDerivedContent(state.content)
+  savedTitle.value = state.savedTitle
+  savedContent.value = state.savedContent
+  editorHistory = state.history
+  markDirty()
+  selectedImageIndex.value = null
+  editorSelection = {
+    start: state.selectionStart,
+    end: state.selectionEnd,
+    direction: state.selectionDirection,
+  }
+  currentMatchIndex.value = 0
+  replaceMessage.value = ''
+  pendingInputHistoryGroup = null
+  nextTick(() => {
+    syncEditorScrollPadding()
+    ensureScrollPaddingObserver()
+    scrollSync.restoreEditorPosition(state.editorPosition)
+    scrollSync.restorePreviewPosition(state.previewPosition)
+    const textarea = textareaRef.value
+    if (textarea) {
+      const contentLength = textarea.value.length
+      textarea.setSelectionRange(
+        Math.min(state.selectionStart, contentLength),
+        Math.min(state.selectionEnd, contentLength),
+        state.selectionDirection,
+      )
+      if (editorMode.value !== 'preview') textarea.focus({ preventScroll: true })
+    }
+  })
+}
 
 function synchronizeDerivedContent(content: string): void {
   previewUpdateTask.cancel()
@@ -452,6 +557,9 @@ const outlineHeadings = computed(() =>
 watch(
   () => props.note,
   (newNote, oldNote) => {
+    if (oldNote && oldNote.id !== newNote?.id) {
+      captureDocumentState(oldNote.id)
+    }
     if (!newNote) {
       editTitle.value = ''
       editContent.value = ''
@@ -473,36 +581,18 @@ watch(
     // Prevents accidental overwrites when the parent updates the note object
     // in-place (e.g. after saving).
     if (newNote.id !== oldNote?.id) {
-      editTitle.value = newNote.title
-      editContent.value = newNote.content
-      synchronizeDerivedContent(newNote.content)
-      savedTitle.value = newNote.title
-      savedContent.value = newNote.content
-      isDirty.value = false
       editorMode.value = resolveDocumentSwitchMode(
         defaultModeApplied,
         editorMode.value,
         props.settings.defaultEditorMode,
       )
       defaultModeApplied = true
-      selectedImageIndex.value = null
-      editorSelection = null
-      currentMatchIndex.value = 0
-      replaceMessage.value = ''
-      editorHistory.reset({
-        content: newNote.content,
-        selectionStart: 0,
-        selectionEnd: 0,
-        selectionDirection: 'none',
-      })
-      pendingInputHistoryGroup = null
-      nextTick(() => {
-        syncEditorScrollPadding()
-        ensureScrollPaddingObserver()
-      })
-      if (editorMode.value !== 'preview') {
-        nextTick(() => textareaRef.value?.focus())
+      let state = cachedDocuments.get(newNote.id)
+      if (!state) {
+        state = createCachedDocumentState(newNote)
+        cachedDocuments.set(newNote.id, state)
       }
+      restoreDocumentState(state)
     }
   },
   { immediate: true }
@@ -981,6 +1071,13 @@ async function performSave(): Promise<boolean> {
     if (saved) {
       savedTitle.value = titleSnapshot
       savedContent.value = contentSnapshot
+      const cached = cachedDocuments.get(props.note.id)
+      if (cached) {
+        cached.title = titleSnapshot
+        cached.content = contentSnapshot
+        cached.savedTitle = titleSnapshot
+        cached.savedContent = contentSnapshot
+      }
       markDirty()
     }
     return saved
@@ -1298,7 +1395,74 @@ function getDraft(): { id: string; title: string; content: string } | null {
   }
 }
 
-defineExpose({ isDirty, save: handleSave, getDraft })
+function hasUnsavedChanges(documentId: string): boolean {
+  if (props.note?.id === documentId) captureDocumentState(documentId)
+  const state = cachedDocuments.get(documentId)
+  return Boolean(state && (state.title !== state.savedTitle || state.content !== state.savedContent))
+}
+
+function getDirtyDocumentIds(): string[] {
+  if (props.note) captureDocumentState(props.note.id)
+  return [...cachedDocuments.entries()]
+    .filter(([, state]) => state.title !== state.savedTitle || state.content !== state.savedContent)
+    .map(([id]) => id)
+}
+
+async function saveDocument(documentId: string): Promise<boolean> {
+  if (props.note?.id === documentId) return handleSave()
+  const state = cachedDocuments.get(documentId)
+  if (!state || (state.title === state.savedTitle && state.content === state.savedContent)) return true
+  const saved = await props.saveNote({
+    id: documentId,
+    title: state.title.trim() || '未命名笔记',
+    content: state.content,
+  })
+  if (saved) {
+    state.savedTitle = state.title
+    state.savedContent = state.content
+  }
+  return saved
+}
+
+async function saveDocuments(documentIds: string[]): Promise<boolean> {
+  if (props.note) captureDocumentState(props.note.id)
+  for (const documentId of documentIds) {
+    if (!(await saveDocument(documentId))) return false
+  }
+  return true
+}
+
+function forgetDocument(documentId: string): void {
+  cachedDocuments.delete(documentId)
+}
+
+function markDocumentSaved(documentId: string): void {
+  const state = cachedDocuments.get(documentId)
+  if (!state) return
+  if (props.note?.id === documentId) {
+    state.title = editTitle.value
+    state.content = editContent.value
+  }
+  state.savedTitle = state.title
+  state.savedContent = state.content
+  if (props.note?.id === documentId) {
+    savedTitle.value = editTitle.value
+    savedContent.value = editContent.value
+    markDirty()
+  }
+}
+
+defineExpose({
+  isDirty,
+  save: handleSave,
+  getDraft,
+  hasUnsavedChanges,
+  getDirtyDocumentIds,
+  saveDocument,
+  saveDocuments,
+  forgetDocument,
+  markDocumentSaved,
+})
 
 function attachImageErrorHandlers(): void {
   const preview = previewRef.value

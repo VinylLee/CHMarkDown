@@ -51,7 +51,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import NoteList from '../components/NoteList.vue'
 import NoteEditor from '../components/NoteEditor.vue'
 import { useConfirm } from '../composables/useConfirm'
@@ -124,27 +124,31 @@ const activeDocument = computed<Note | null>(() => {
   return selectedNote.value
 })
 
-async function canLeaveCurrentNote(reason: 'navigate' | 'close' = 'navigate'): Promise<boolean> {
+async function canCloseDocuments(
+  documentIds: string[],
+  reason: 'file' | 'app',
+): Promise<boolean> {
   const editor = noteEditorRef.value
+  const dirtyIds = documentIds.filter((id) => editor?.hasUnsavedChanges(id) ?? false)
+  const dirtyCount = dirtyIds.length
   return resolveUnsavedChanges({
-    dirty: editor?.isDirty ?? false,
+    dirty: dirtyCount > 0,
     choose: () =>
       requestConfirm({
-        title: reason === 'close' ? '退出前保存修改？' : '存在未保存的修改',
-        message: reason === 'close'
-          ? '当前文档尚未保存，可以保存后退出或放弃这些修改。'
-          : '保存当前文档后再继续，或放弃这些修改。',
-        confirmText: reason === 'close' ? '保存并退出' : '保存并离开',
-        secondaryText: reason === 'close' ? '不保存并退出' : '放弃修改',
+        title: reason === 'app' ? '退出前保存修改？' : '关闭前保存修改？',
+        message: dirtyCount === 1
+          ? '文档尚未保存，可以保存后继续或放弃这些修改。'
+          : `${dirtyCount} 个文档尚未保存，可以全部保存后继续或放弃这些修改。`,
+        confirmText: reason === 'app' ? '保存并退出' : '保存并关闭',
+        secondaryText: reason === 'app' ? '不保存并退出' : '不保存并关闭',
         cancelText: '取消',
       }),
-    save: () => editor?.save() ?? Promise.resolve(true),
+    save: () => editor?.saveDocuments(dirtyIds) ?? Promise.resolve(true),
   })
 }
 
 async function trySelectDocument(id: string): Promise<void> {
   if (id === selectedId.value) return
-  if (!(await canLeaveCurrentNote())) return
   selectedId.value = id
 }
 
@@ -190,7 +194,6 @@ function replaceDocumentInOrder(previousId: string | null, nextId: string): void
 }
 
 async function tryCreateNote(): Promise<void> {
-  if (!(await canLeaveCurrentNote())) return
   const created = await createNote()
   if (created) selectedId.value = created.id
 }
@@ -281,16 +284,17 @@ async function recordRecentFile(filePath: string): Promise<void> {
 
 async function handleSave(data: { id: string; title: string; content: string }): Promise<boolean> {
   error.value = ''
-  if (activeExternalFile.value) {
+  const externalFile = externalFiles.value.find((file) => file.id === data.id)
+  if (externalFile) {
     try {
       const savedFile = await window.electronAPI.files.saveMarkdown(
-        activeExternalFile.value.filePath,
+        externalFile.filePath,
         data.content
       )
       externalFiles.value = upsertOpenMarkdownFile(
         externalFiles.value,
         savedFile,
-        activeExternalFile.value.openedAt
+        externalFile.openedAt
       )
       show('文件已保存')
       return true
@@ -327,7 +331,6 @@ async function handleOpenFile(): Promise<void> {
   try {
     const openedFile = await window.electronAPI.files.openMarkdown()
     if (!openedFile) return
-    if (!(await canLeaveCurrentNote())) return
     await activateOpenedFile(openedFile)
   } catch (err) {
     error.value = '打开文件失败。'
@@ -349,8 +352,6 @@ async function handleOpenFilePath(
   filePath: string,
   source: 'recent' | 'drop' | 'system',
 ): Promise<void> {
-  if (!(await canLeaveCurrentNote())) return
-
   try {
     const openedFile = await window.electronAPI.files.openMarkdownPath(filePath)
     await activateOpenedFile(openedFile)
@@ -489,6 +490,12 @@ async function handleSaveAs(): Promise<void> {
     const savedId = createOpenMarkdownFile(savedFile).id
     replaceDocumentInOrder(previousExternalId, savedId)
     selectedId.value = savedId
+    if (savedId === draft.id) {
+      noteEditorRef.value?.markDocumentSaved(savedId)
+    } else {
+      await nextTick()
+      noteEditorRef.value?.forgetDocument(draft.id)
+    }
     await recordRecentFile(savedFile.filePath)
     show(`已另存为 ${savedFile.fileName}`)
   } catch (err) {
@@ -540,9 +547,10 @@ function selectFallbackDocument(excludedId: string): void {
 
 async function handleCloseListItem(id: string, kind: 'note' | 'file'): Promise<void> {
   if (kind === 'file') {
-    if (id === selectedId.value && !(await canLeaveCurrentNote())) return
+    if (!(await canCloseDocuments([id], 'file'))) return
     externalFiles.value = removeOpenMarkdownFile(externalFiles.value, id)
     removeDocumentFromOrder(id)
+    noteEditorRef.value?.forgetDocument(id)
     if (selectedId.value === id) {
       selectFallbackDocument(id)
     }
@@ -570,10 +578,6 @@ async function handleCloseRange(range: DocumentCloseRange, id: string): Promise<
   const targets = resolveCloseRangeTargets(documentOrder.value, range, id)
   if (targets.length === 0) return
 
-  if (selectedId.value !== null && targets.includes(selectedId.value)) {
-    if (!(await canLeaveCurrentNote())) return
-  }
-
   const noteIds = targets.filter((item) => notes.value.some((note) => note.id === item))
   const fileIds = targets.filter((item) => externalFiles.value.some((file) => file.id === item))
 
@@ -592,6 +596,8 @@ async function handleCloseRange(range: DocumentCloseRange, id: string): Promise<
     if (result !== 'confirm') return
   }
 
+  if (!(await canCloseDocuments(fileIds, 'file'))) return
+
   const deletedNoteIds: string[] = []
   try {
     for (const noteId of noteIds) {
@@ -606,6 +612,7 @@ async function handleCloseRange(range: DocumentCloseRange, id: string): Promise<
   externalFiles.value = externalFiles.value.filter((file) => !fileIds.includes(file.id))
 
   const removedIds = [...deletedNoteIds, ...fileIds]
+  removedIds.forEach((removedId) => noteEditorRef.value?.forgetDocument(removedId))
   removeDocumentsFromOrder(removedIds)
   if (selectedId.value !== null && removedIds.includes(selectedId.value)) {
     selectFallbackDocument(selectedId.value)
@@ -636,6 +643,7 @@ async function handleDelete(id: string): Promise<void> {
     await window.electronAPI.notes.delete(id)
     notes.value = notes.value.filter((n) => n.id !== id)
     removeDocumentFromOrder(id)
+    noteEditorRef.value?.forgetDocument(id)
     if (selectedId.value === id) {
       selectFallbackDocument(id)
     }
@@ -672,7 +680,8 @@ function queueSessionSave(state: SessionState): void {
 }
 
 async function canCloseApp(): Promise<boolean> {
-  if (!(await canLeaveCurrentNote('close'))) return false
+  const dirtyIds = noteEditorRef.value?.getDirtyDocumentIds() ?? []
+  if (!(await canCloseDocuments(dirtyIds, 'app'))) return false
   await sessionSaveQueue
   try {
     await window.electronAPI.session.save(currentSessionState())

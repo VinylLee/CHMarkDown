@@ -167,8 +167,8 @@
               :aria-label="document.kind === 'file' ? `关闭 ${document.title}` : `删除 ${document.title}`"
               @click.stop="$emit('close', document.id, document.kind)"
             >
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                <path d="M2 2L8 8M8 2L2 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+              <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+                <circle cx="5" cy="5" r="3.2" fill="currentColor" />
               </svg>
             </button>
           </div>
